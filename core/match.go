@@ -21,31 +21,31 @@ type Matcher struct {
 func (c *core) match(ctx *zoox.Context, path string) (s *route.Route, err error) {
 	key := fmt.Sprintf("match.path:%s", path)
 	matcher := &route.Route{}
-	if err := ctx.Cache().Get(key, matcher); err != nil {
-		matcher, err = MatchPath(c.cfg.Routes, path)
-		if err != nil {
-			if !errors.Is(err, ErrorNotFound) {
-				return nil, err
-			}
-		}
+	if err := ctx.Cache().Get(key, matcher); err == nil {
+		return matcher, nil
+	}
 
-		ctx.Cache().Set(key, matcher, 60*time.Second)
+	matcher, err = MatchPath(c.cfg.Routes, path)
+	if err != nil {
+		if !errors.Is(err, ErrorNotFound) {
+			return nil, err
+		}
 	}
 
 	// main service
 	s = matcher
 
-	// match func
-	if s == nil {
-		if c.cfg.Match != nil {
-			sm, err := c.cfg.Match(path)
-			if err != nil {
-				return nil, err
-			}
+	// // match func
+	// if s == nil {
+	// 	if c.cfg.Match != nil {
+	// 		sm, err := c.cfg.Match(path)
+	// 		if err != nil {
+	// 			return nil, err
+	// 		}
 
-			s = sm
-		}
-	}
+	// 		s = sm
+	// 	}
+	// }
 
 	if s == nil {
 		s = &route.Route{
@@ -53,6 +53,8 @@ func (c *core) match(ctx *zoox.Context, path string) (s *route.Route, err error)
 			Backend: c.cfg.Backend,
 		}
 	}
+
+	ctx.Cache().Set(key, s, 60*time.Second)
 
 	return s, nil
 }

@@ -1,0 +1,72 @@
+version: v1
+
+port: 8090
+
+cache:
+  host: redis
+  port: 6379
+  password: password
+  db: 10
+
+backend:
+  service:
+    name: prod_548
+    port: 8080
+    request:
+      path:
+        disable_prefix_rewrite: true
+
+routes:
+  - name: 配置中心
+    path: ^/open/v1/client/config/([^/]+) 
+    path_type: regex
+    backend:
+      service:
+        name: prod_eunomia-service-config
+        port: 8080
+        request:
+          path:
+            disable_prefix_rewrite: true
+
+  - name: WebHook
+    path: /open/v1/webhook
+    backend:
+      service:
+        name: prod_eunomia-service-webhook
+        port: 8080
+        request:
+          path:
+            disable_prefix_rewrite: true
+
+  - name: 开放平台
+    path: /open/v1/client
+    backend:
+      service:
+        name: prod_eunomia-service-openapi
+        port: 8080
+        request:
+          path:
+            disable_prefix_rewrite: true
+
+  - name: 日志服务
+    path: /v1/logger
+    backend:
+      service:
+        name: prod_eunomia-service-logger
+        port: 8080
+        request:
+          path:
+            disable_prefix_rewrite: true
+
+  - name: 部署服务
+    path: ^/v2/flows/my/\d+/deploy
+    path_type: regex
+    backend:
+      service:
+        name: prod_eunomia-service-deploy
+        port: 8080
+        request:
+          path:
+            disable_prefix_rewrite: true
+
+

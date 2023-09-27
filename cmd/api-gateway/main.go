@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-
 	"github.com/go-zoox/api-gateway"
 	"github.com/go-zoox/api-gateway/core"
 	"github.com/go-zoox/cli"
@@ -40,7 +38,6 @@ func main() {
 		}
 
 		var cfg core.Config
-		cfg.Port = c.Int64("port")
 
 		if configFilePath != "" {
 			if !fs.IsExist(configFilePath) {
@@ -54,12 +51,16 @@ func main() {
 			}
 		}
 
+		if c.Int64("port") != 0 {
+			cfg.Port = c.Int64("port")
+		}
+
 		if cfg.Port == 0 {
 			cfg.Port = 8080
 		}
 
 		// @TODO
-		if os.Getenv("LOG_LEVEL") == "debug" {
+		if logger.IsDebugLevel() {
 			// logger.Debug("config: %v", cfg)
 			fmt.PrintJSON("config:", cfg)
 		}

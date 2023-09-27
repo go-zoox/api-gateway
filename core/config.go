@@ -14,7 +14,7 @@ type Config struct {
 	//
 	HealthCheck HealthCheck `config:"healthcheck"`
 	//
-	Match func(path string) (r *route.Route, err error)
+	// Match func(path string) (r *route.Route, err error)
 }
 
 type HealthCheck struct {

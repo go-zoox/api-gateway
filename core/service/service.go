@@ -19,6 +19,15 @@ type Request struct {
 	Query   map[string]string `config:"query"`
 }
 
+type RequestPath struct {
+	DisablePrefixRewrite bool     `config:"disable_prefix_rewrite"`
+	Rewrites             []string `config:"rewrites"`
+}
+
+type Response struct {
+	Headers map[string]string `config:"headers"`
+}
+
 type HealthCheck struct {
 	Enable bool `config:"enable"`
 
@@ -29,15 +38,6 @@ type HealthCheck struct {
 
 	// ok means health check is ok, ignore real check
 	Ok bool `config:"ok"`
-}
-
-type RequestPath struct {
-	DisablePrefixRewrite bool     `config:"disable_prefix_rewrite"`
-	Rewrites             []string `config:"rewrites"`
-}
-
-type Response struct {
-	Headers map[string]string `config:"headers"`
 }
 
 type Auth struct {
