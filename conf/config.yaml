@@ -1,0 +1,80 @@
+version: v1
+
+port: 8090
+
+cache:
+  engine: redis
+  host: 127.0.0.1
+  port: 6379
+  password: "123456"
+  db: 2
+
+database:
+  engine: postgres
+  host: postgres
+  port: 5432
+  username: postgres
+  password: postgres
+  db: api-gateway
+
+healthcheck:
+  # respond to health check requests
+  outer:
+    enable: true
+    path: /healthz
+    ok: true
+  # check inner services
+  inner:
+    enable: true
+    interval: 30
+    timeout: 5
+
+backend:
+  service:
+    protocol: https
+    name: httpbin.zcorky.com
+    port: 443
+
+routes:
+  - name: 用户服务
+    path: /v1/user
+    backend:
+      service:
+        protocol: https
+        name: httpbin.zcorky.com
+        port: 443
+
+  - name: 配置服务
+    path: /v1/config
+    backend:
+      service:
+        protocol: https
+        name: httpbin.zcorky.com
+        port: 443
+        request:
+          path:
+            disable_prefix_rewrite: true
+
+  - name: 客户端服务
+    path: /v1/client
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443
+        request:
+          path:
+            rewrites:
+              - ^/v1/client/ip2:/ip
+
+  - name: 代理服务
+    path: /proxy
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443
+        request:
+          path:
+            rewrites:
+              - ^/httpbin.org/(.*):/$1
