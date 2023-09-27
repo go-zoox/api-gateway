@@ -18,10 +18,10 @@ go install github.com/go-zoox/api-gateway/cmd/api-gateway@latest
 
 ```bash
 # start api-gateway, cached in memory, default udp port: 80
-sudo api-gateway
+api-gateway
 
 # start api-gateway with config (see conf/api-gateway.yml for more options)
-sudo api-gateway -c api-gateway.yml
+api-gateway -c api-gateway.yml
 ```
 
 ## Configuration
