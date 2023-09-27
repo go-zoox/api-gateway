@@ -12,4 +12,6 @@ type Route struct {
 	Name    string  `config:"name"`
 	Path    string  `config:"path"`
 	Backend Backend `config:"backend"`
+	// PathType is the path type of route, options: prefix, regex
+	PathType string `config:"path_type,default=prefix"`
 }

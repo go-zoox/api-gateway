@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"regexp"
 	"time"
 
 	"github.com/go-zoox/core-utils/fmt"
@@ -60,8 +61,19 @@ func MatchPath(routes []route.Route, path string) (r *route.Route, err error) {
 	// fmt.PrintJSON(routes)
 	for _, route := range routes {
 		// fmt.Println("starts woth =>", len(routes), path, route.Path, strings.StartsWith(path, route.Path))
-		if isMatched := strings.StartsWith(path, route.Path); isMatched {
-			return &route, nil
+		switch route.PathType {
+		case "prefix", "":
+			if isMatched := strings.StartsWith(path, route.Path); isMatched {
+				return &route, nil
+			}
+		case "regex":
+			if isMatched, err := regexp.MatchString(route.Path, path); err != nil {
+				return nil, err
+			} else if isMatched {
+				return &route, nil
+			}
+		default:
+			return nil, fmt.Errorf("unsupport path type: %s", route.PathType)
 		}
 	}
 
