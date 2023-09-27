@@ -11,7 +11,7 @@
 ## Installation
 To install the package, run:
 ```bash
-go install github.com/go-zoox/api-gateway@latest
+go install github.com/go-zoox/api-gateway/cmd/api-gateway@latest
 ```
 
 ## Quick Start
