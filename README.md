@@ -1,7 +1,7 @@
 # api-gateway - A Easy, Powerful, Fexible API Gateway
 
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/go-zoox/api-gateway)](https://pkg.go.github.com/go-zoox/api-gateway-gateway)
-[![Build Status](https://github.com/go-zoox/api-gateway/actions/workflows/lint.yml/badge.svg?branch=master)](httpgithub.com/go-zoox/api-gateway-gateway/actions/workflows/lint.yml)
+[![Build Status](https://github.com/go-zoox/api-gateway/actions/workflows/release.yml/badge.svg?branch=master)](httpgithub.com/go-zoox/api-gateway-gateway/actions/workflows/release.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-zoox/api-gateway)](https://goreportcard.com/repgithub.com/go-zoox/api-gateway-gateway)
 [![Coverage Status](https://coveralls.io/repos/github/go-zoox/api-gateway/badge.svg?branch=master)](https://coveralls.io/github/go-zoox/api-gateway?branch=master)
 [![GitHub issues](https://img.shields.io/github/issues/go-zoox/api-gateway.svg)](https://github.com/go-zoox/api-gateway/issues)
