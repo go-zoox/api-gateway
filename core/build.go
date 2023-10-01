@@ -25,31 +25,6 @@ func (c *core) build() error {
 		ctx.Next()
 	})
 
-	// plugins
-	c.app.Use(middleware.Proxy(func(ctx *zoox.Context, cfg *middleware.ProxyConfig) (next bool, err error) {
-		cfg.OnRequest = func(req, inReq *http.Request) error {
-			for _, plugin := range c.plugins {
-				if err := plugin.OnRequest(ctx, ctx.Request); err != nil {
-					return err
-				}
-			}
-
-			return nil
-		}
-
-		cfg.OnResponse = func(res *http.Response, inReq *http.Request) error {
-			for _, plugin := range c.plugins {
-				if err := plugin.OnResponse(ctx, ctx.Writer); err != nil {
-					return err
-				}
-			}
-
-			return nil
-		}
-
-		return true, nil
-	}))
-
 	// services (core plugin)
 	c.app.Use(middleware.Proxy(func(ctx *zoox.Context, cfg *middleware.ProxyConfig) (next bool, err error) {
 		method := ctx.Method
@@ -88,6 +63,12 @@ func (c *core) build() error {
 				req.URL.RawQuery = originQuery.Encode()
 			}
 
+			for _, plugin := range c.plugins {
+				if err := plugin.OnRequest(ctx, ctx.Request); err != nil {
+					return err
+				}
+			}
+
 			ctx.Logger.Infof("[route: %s] %s %s => %s (path: %s)", r.Name, method, path, r.Backend.Service.Target(), req.URL.Path)
 
 			return nil
@@ -98,7 +79,14 @@ func (c *core) build() error {
 				ctx.Writer.Header().Set(k, v)
 			}
 
-			ctx.Writer.Header().Set("X-Proxy-By", fmt.Sprintf("gozoox-api-gateway/%s", c.version))
+			for _, plugin := range c.plugins {
+				if err := plugin.OnResponse(ctx, ctx.Writer); err != nil {
+					return err
+				}
+			}
+
+			// ctx.Writer.Header().Del("X-Powered-By")
+			ctx.Writer.Header().Set("X-Powered-By", fmt.Sprintf("gozoox-api-gateway/%s", c.version))
 			return nil
 		}
 
