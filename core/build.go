@@ -81,17 +81,16 @@ func (c *core) build() error {
 
 		cfg.OnResponse = func(res *http.Response, inReq *http.Request) error {
 			for k, v := range r.Backend.Service.Response.Headers {
-				ctx.Writer.Header().Set(k, v)
+				res.Header.Set(k, v)
 			}
 
 			for _, plugin := range c.plugins {
-				if err := plugin.OnResponse(ctx, ctx.Writer); err != nil {
+				if err := plugin.OnResponse(ctx, res); err != nil {
 					return err
 				}
 			}
 
-			// ctx.Writer.Header().Del("X-Powered-By")
-			ctx.Writer.Header().Set("X-Powered-By", fmt.Sprintf("gozoox-api-gateway/%s", c.version))
+			res.Header.Set("X-Powered-By", fmt.Sprintf("gozoox-api-gateway/%s", c.version))
 			return nil
 		}
 
