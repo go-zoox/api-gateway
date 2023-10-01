@@ -41,6 +41,18 @@ func (c *core) build() error {
 			return true, nil
 		}
 
+		if _, err := r.Backend.Service.CheckDNS(); err != nil {
+			logger.Errorf("check dns error: %s", err)
+
+			// prefix service specify
+			if r.PathType == "prefix" {
+				return false, proxy.NewHTTPError(503, "Service Unavailable")
+			}
+
+			// regular expression service specify, maybe the service is not found
+			return false, proxy.NewHTTPError(404, "Service Not Found")
+		}
+
 		cfg.OnRequest = func(req, inReq *http.Request) error {
 			req.URL.Scheme = r.Backend.Service.Protocol
 			req.URL.Host = r.Backend.Service.Host()
