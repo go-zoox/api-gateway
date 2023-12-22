@@ -26,7 +26,7 @@ func (c *core) build() error {
 	})
 
 	// services (core plugin)
-	c.app.Use(middleware.Proxy(func(ctx *zoox.Context, cfg *middleware.ProxyConfig) (next bool, err error) {
+	c.app.Use(middleware.Proxy(func(ctx *zoox.Context, cfg *middleware.ProxyConfig) (next, stop bool, err error) {
 		method := ctx.Method
 		path := ctx.Path
 
@@ -34,16 +34,16 @@ func (c *core) build() error {
 		if err != nil {
 			logger.Errorf("failed to get config: %s", err)
 			//
-			return false, proxy.NewHTTPError(404, "Not Found")
+			return false, false, proxy.NewHTTPError(404, "Not Found")
 		}
 
 		if r == nil {
-			return true, nil
+			return true, false, nil
 		}
 
 		if _, err := r.Backend.Service.CheckDNS(); err != nil {
 			logger.Errorf("check dns error: %s", err)
-			return false, proxy.NewHTTPError(503, "Service Unavailable")
+			return false, false, proxy.NewHTTPError(503, "Service Unavailable")
 		}
 
 		cfg.OnRequest = func(req, inReq *http.Request) error {
