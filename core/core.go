@@ -8,6 +8,8 @@ package core
 import (
 	"fmt"
 
+	"github.com/go-zoox/api-gateway/config"
+	"github.com/go-zoox/api-gateway/plugin"
 	"github.com/go-zoox/zoox"
 	"github.com/go-zoox/zoox/defaults"
 )
@@ -21,12 +23,12 @@ type core struct {
 	app *zoox.Application
 
 	version string
-	cfg     *Config
+	cfg     *config.Config
 
-	plugins []Plugin
+	plugins []plugin.Plugin
 }
 
-func New(version string, cfg *Config) (Core, error) {
+func New(version string, cfg *config.Config) (Core, error) {
 	c := &core{
 		app: defaults.Default(),
 		//
