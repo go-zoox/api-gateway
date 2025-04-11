@@ -1,24 +1,28 @@
 package core
 
 import (
+	"fmt"
+
+	"github.com/go-zoox/api-gateway/plugin/baseuri"
 	"github.com/go-zoox/kv"
 	"github.com/go-zoox/kv/redis"
 )
 
 func (c *core) prepare() error {
 	// prepare cache
-	c.prepareCache()
+	if err := c.prepareCache(); err != nil {
+		return err
+	}
 
-	for _, plugin := range c.plugins {
-		if err := plugin.Prepare(c.app, c.cfg); err != nil {
-			return err
-		}
+	// prepare plugins
+	if err := c.preparePlugins(); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func (c *core) prepareCache() {
+func (c *core) prepareCache() error {
 	if c.cfg.Cache.Host != "" {
 		prefix := c.cfg.Cache.Prefix
 		if prefix == "" {
@@ -37,4 +41,33 @@ func (c *core) prepareCache() {
 			},
 		}
 	}
+
+	return nil
+}
+
+func (c *core) preparePlugins() error {
+	// buildin plugins
+	if err := c.preparePluginsBuildin(); err != nil {
+		return err
+	}
+
+	for _, plugin := range c.plugins {
+		if err := plugin.Prepare(c.app, c.cfg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *core) preparePluginsBuildin() error {
+	fmt.Println("ssss baseuri:", c.cfg.BaseURI)
+	// baseuri
+	if c.cfg.BaseURI != "" {
+		c.plugins = append(c.plugins, &baseuri.BaseURI{
+			BaseURI: c.cfg.BaseURI,
+		})
+	}
+
+	return nil
 }

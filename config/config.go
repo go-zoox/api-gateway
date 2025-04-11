@@ -1,11 +1,14 @@
-package core
+package config
 
 import (
 	"github.com/go-zoox/api-gateway/core/route"
 )
 
 type Config struct {
-	Port    int64         `config:"port"`
+	Port int64 `config:"port"`
+	// BaseURI is the base uri of api gateway, which is used to generate the proxy request url
+	BaseURI string `config:"baseuri"`
+	//
 	Backend route.Backend `config:"backend"`
 	//
 	Routes []route.Route `config:"routes"`

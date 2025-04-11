@@ -2,9 +2,10 @@ package main
 
 import (
 	"github.com/go-zoox/api-gateway"
+	"github.com/go-zoox/api-gateway/config"
 	"github.com/go-zoox/api-gateway/core"
 	"github.com/go-zoox/cli"
-	"github.com/go-zoox/config"
+	gzconfig "github.com/go-zoox/config"
 	"github.com/go-zoox/core-utils/fmt"
 	"github.com/go-zoox/fs"
 	"github.com/go-zoox/logger"
@@ -37,14 +38,14 @@ func main() {
 			configFilePath = "/etc/api-gateway/config.yaml"
 		}
 
-		var cfg core.Config
+		var cfg config.Config
 
 		if configFilePath != "" {
 			if !fs.IsExist(configFilePath) {
 				return fmt.Errorf("config file(%s) not found", configFilePath)
 			}
 
-			if err := config.Load(&cfg, &config.LoadOptions{
+			if err := gzconfig.Load(&cfg, &gzconfig.LoadOptions{
 				FilePath: configFilePath,
 			}); err != nil {
 				return fmt.Errorf("failed to read config file: %s", err)
