@@ -1,5 +1,5 @@
 # Builder
-FROM --platform=$BUILDPLATFORM whatwewant/builder-go:v1.20-1 as builder
+FROM --platform=$BUILDPLATFORM whatwewant/builder-go:v1.24-1 as builder
 
 WORKDIR /build
 
