@@ -4,6 +4,8 @@ import (
 	"github.com/go-zoox/api-gateway/core/service"
 )
 
+type Service = service.Service
+
 type Backend struct {
 	Service service.Service `config:"service"`
 }

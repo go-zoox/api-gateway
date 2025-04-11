@@ -32,9 +32,9 @@ func (c *core) build() error {
 
 		r, err := c.match(ctx, path)
 		if err != nil {
-			logger.Errorf("failed to get config: %s", err)
+			logger.Errorf("[build][path: %s] failed to match route: %s", ctx.Path, err)
 			//
-			return false, false, proxy.NewHTTPError(404, "Not Found")
+			return false, false, proxy.NewHTTPError(404, err.Error())
 		}
 
 		if r == nil {
@@ -43,7 +43,7 @@ func (c *core) build() error {
 
 		if _, err := r.Backend.Service.CheckDNS(); err != nil {
 			logger.Errorf("check dns error: %s", err)
-			return false, false, proxy.NewHTTPError(503, "Service Unavailable")
+			return false, false, proxy.NewHTTPError(503, ErrServiceUnavailable.Error())
 		}
 
 		cfg.OnRequest = func(req, inReq *http.Request) error {

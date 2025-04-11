@@ -2,4 +2,6 @@ package core
 
 import "errors"
 
-var ErrorNotFound = errors.New("route not found")
+var ErrRouteNotFound = errors.New("route not found")
+var ErrServiceNotFound = errors.New("service not found")
+var ErrServiceUnavailable = errors.New("service unavailable")

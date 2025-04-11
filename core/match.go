@@ -27,7 +27,7 @@ func (c *core) match(ctx *zoox.Context, path string) (s *route.Route, err error)
 
 	matcher, err = MatchPath(c.cfg.Routes, path)
 	if err != nil {
-		if !errors.Is(err, ErrorNotFound) {
+		if !errors.Is(err, ErrRouteNotFound) {
 			return nil, err
 		}
 	}
@@ -47,11 +47,17 @@ func (c *core) match(ctx *zoox.Context, path string) (s *route.Route, err error)
 	// 	}
 	// }
 
-	if s == nil {
+	// use default service if not found
+	if s == nil && c.cfg.Backend.Service.Name != "" {
 		s = &route.Route{
 			Name:    "default",
 			Backend: c.cfg.Backend,
 		}
+	}
+
+	// route not found or not match, return error
+	if s == nil {
+		return nil, ErrRouteNotFound
 	}
 
 	ctx.Cache().Set(key, s, 60*time.Second)
@@ -79,5 +85,5 @@ func MatchPath(routes []route.Route, path string) (r *route.Route, err error) {
 		}
 	}
 
-	return nil, ErrorNotFound
+	return nil, ErrRouteNotFound
 }

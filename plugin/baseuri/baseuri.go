@@ -17,13 +17,13 @@ type BaseURI struct {
 }
 
 func (b *BaseURI) Prepare(app *zoox.Application, cfg *config.Config) (err error) {
-	app.Logger.Infof("[plugin:baseuri] prepare ...")
+	app.Logger().Infof("[plugin:baseuri] prepare ...")
 
 	if b.BaseURI == "" {
 		return fmt.Errorf("BaseURI is required for baseuri plugin")
 	}
 
-	app.Logger.Infof("[plugin:baseuri] baseuri: %s", b.BaseURI)
+	app.Logger().Infof("[plugin:baseuri] baseuri: %s", b.BaseURI)
 
 	app.Use(func(ctx *zoox.Context) {
 		if ok := strings.StartsWith(ctx.Request.URL.Path, b.BaseURI); !ok {
@@ -38,7 +38,7 @@ func (b *BaseURI) Prepare(app *zoox.Application, cfg *config.Config) (err error)
 		ctx.Next()
 	})
 
-	app.Logger.Infof("[plugin:baseuri] base uri: %s", b.BaseURI)
+	app.Logger().Infof("[plugin:baseuri] base uri: %s", b.BaseURI)
 	return nil
 }
 func (b *BaseURI) OnRequest(ctx *zoox.Context, req *http.Request) (err error) {
