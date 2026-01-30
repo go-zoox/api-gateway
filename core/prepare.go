@@ -1,8 +1,6 @@
 package core
 
 import (
-	"fmt"
-
 	"github.com/go-zoox/api-gateway/plugin/baseuri"
 	"github.com/go-zoox/kv"
 	"github.com/go-zoox/kv/redis"
@@ -61,7 +59,8 @@ func (c *core) preparePlugins() error {
 }
 
 func (c *core) preparePluginsBuildin() error {
-	fmt.Println("ssss baseuri:", c.cfg.BaseURI)
+	c.app.Logger().Debugf("baseuri: %s", c.cfg.BaseURI)
+
 	// baseuri
 	if c.cfg.BaseURI != "" {
 		c.plugins = append(c.plugins, &baseuri.BaseURI{
