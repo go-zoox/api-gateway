@@ -23,6 +23,7 @@ API Gateway is an easy, powerful, and flexible self-hosted API gateway built wit
 - [Plugins](/guide/plugins) - Plugin system and development
 - [Health Check](/guide/health-check) - Health check configuration
 - [Examples](/guide/examples) - Real-world examples and use cases
+- [TODO List](/TODO) - Development roadmap and planned features
 
 ## Getting Help
 

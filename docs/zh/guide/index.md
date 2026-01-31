@@ -23,6 +23,7 @@ API Gateway 是一个使用 Go 构建的简单、强大、灵活的自托管 API
 - [插件](/zh/guide/plugins) - 插件系统和开发
 - [健康检查](/zh/guide/health-check) - 健康检查配置
 - [示例](/zh/guide/examples) - 实际示例和用例
+- [TODO 列表](/zh/TODO) - 开发路线图和计划功能
 
 ## 获取帮助
 

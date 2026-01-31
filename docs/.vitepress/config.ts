@@ -38,6 +38,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/' },
           { text: 'API Reference', link: '/api/' },
           { text: 'Examples', link: '/guide/examples' },
+          { text: 'TODO', link: '/TODO' },
           { text: 'GitHub', link: 'https://github.com/go-zoox/api-gateway' }
         ],
         sidebar: {
@@ -63,6 +64,12 @@ export default defineConfig({
               items: [
                 { text: 'Plugins', link: '/guide/plugins' },
                 { text: 'Examples', link: '/guide/examples' }
+              ]
+            },
+            {
+              text: 'Development',
+              items: [
+                { text: 'TODO List', link: '/TODO' }
               ]
             }
           ],
@@ -92,6 +99,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/' },
           { text: 'API 参考', link: '/zh/api/' },
           { text: '示例', link: '/zh/guide/examples' },
+          { text: 'TODO', link: '/TODO' },
           { text: 'GitHub', link: 'https://github.com/go-zoox/api-gateway' }
         ],
         sidebar: {
@@ -117,6 +125,12 @@ export default defineConfig({
               items: [
                 { text: '插件系统', link: '/zh/guide/plugins' },
                 { text: '使用示例', link: '/zh/guide/examples' }
+              ]
+            },
+            {
+              text: '开发',
+              items: [
+                { text: 'TODO 列表', link: '/zh/TODO' }
               ]
             }
           ],
