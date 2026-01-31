@@ -1,0 +1,21 @@
+/**
+ * Custom styles for API Gateway documentation
+ */
+
+:root {
+  --vp-c-brand: #646cff;
+  --vp-c-brand-light: #747bff;
+  --vp-c-brand-lighter: #9499ff;
+  --vp-c-brand-dark: #535bf2;
+  --vp-c-brand-darker: #454ce1;
+}
+
+/* Code blocks */
+.vp-code-group .tabs {
+  border-radius: 8px;
+}
+
+/* Custom components */
+.custom-block {
+  border-radius: 8px;
+}

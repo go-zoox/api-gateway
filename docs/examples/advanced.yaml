@@ -1,0 +1,92 @@
+version: v1
+
+port: 8080
+
+baseuri: /v1
+
+cache:
+  engine: redis
+  host: redis.example.com
+  port: 6379
+  password: redis-password
+  db: 0
+  prefix: "api-gateway:"
+
+healthcheck:
+  outer:
+    enable: true
+    path: /healthz
+    ok: true
+  inner:
+    enable: true
+    interval: 30
+    timeout: 5
+
+backend:
+  service:
+    protocol: https
+    name: default-backend.example.com
+    port: 443
+
+routes:
+  - name: user-service
+    path: /users
+    backend:
+      service:
+        protocol: https
+        name: user-service.example.com
+        port: 443
+        request:
+          path:
+            disable_prefix_rewrite: false
+          headers:
+            X-Service: user-service
+            X-API-Version: v1
+          query:
+            api_key: secret-key
+        response:
+          headers:
+            X-Powered-By: api-gateway
+            Access-Control-Allow-Origin: "*"
+        auth:
+          type: bearer
+          token: bearer-token-here
+        health_check:
+          enable: true
+          method: GET
+          path: /health
+          status: [200]
+          ok: false
+
+  - name: product-service
+    path: /products
+    backend:
+      service:
+        protocol: https
+        name: product-service.example.com
+        port: 443
+        request:
+          path:
+            rewrites:
+              - "^/products/(.*):/api/products/$1"
+        health_check:
+          enable: true
+          path: /health
+          status: [200, 201]
+
+  - name: order-service-regex
+    path: ^/orders/(\d+)
+    path_type: regex
+    backend:
+      service:
+        protocol: https
+        name: order-service.example.com
+        port: 443
+        request:
+          path:
+            rewrites:
+              - "^/orders/(.*):/api/orders/$1"
+        health_check:
+          enable: true
+          path: /health
+          status: [200]

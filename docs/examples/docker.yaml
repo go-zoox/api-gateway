@@ -1,0 +1,35 @@
+version: v1
+
+port: 8080
+
+cache:
+  engine: redis
+  host: redis
+  port: 6379
+  password: password
+  db: 0
+
+healthcheck:
+  outer:
+    enable: true
+    path: /healthz
+  inner:
+    enable: true
+    interval: 30
+    timeout: 5
+
+routes:
+  - name: api-service
+    path: /api
+    backend:
+      service:
+        protocol: http
+        name: api-service
+        port: 8080
+        request:
+          path:
+            disable_prefix_rewrite: false
+        health_check:
+          enable: true
+          path: /health
+          status: [200]

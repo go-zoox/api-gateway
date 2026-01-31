@@ -1,0 +1,12 @@
+version: v1
+
+port: 8080
+
+routes:
+  - name: httpbin
+    path: /
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443
