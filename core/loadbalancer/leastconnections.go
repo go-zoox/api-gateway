@@ -24,13 +24,13 @@ func NewLeastConnections() *LeastConnections {
 
 // Select chooses a server with the least number of active connections
 func (lc *LeastConnections) Select(req *http.Request, backend *route.NormalizedBackend) (*service.Server, error) {
-		// Filter healthy and enabled servers
-		healthyServers := make([]*service.Server, 0)
-		for _, server := range backend.Servers {
-			if !server.Disabled && server.IsHealthy() {
-				healthyServers = append(healthyServers, server)
-			}
+	// Filter healthy and enabled servers
+	healthyServers := make([]*service.Server, 0)
+	for _, server := range backend.Servers {
+		if !server.Disabled && server.IsHealthy() {
+			healthyServers = append(healthyServers, server)
 		}
+	}
 
 	if len(healthyServers) == 0 {
 		return nil, fmt.Errorf("no healthy servers available")
@@ -64,9 +64,8 @@ func (lc *LeastConnections) Select(req *http.Request, backend *route.NormalizedB
 		return nil, fmt.Errorf("failed to select server")
 	}
 
-	// Increment connection count for selected server
-	lc.connections[backendID][selected.ID()]++
-
+	// Note: Connection count is incremented in OnRequestStart(), not here
+	// This ensures proper tracking when the request actually starts
 	return selected, nil
 }
 
