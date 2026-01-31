@@ -5,14 +5,14 @@
 ## 高优先级（核心功能）
 
 ### 1. 负载均衡（Load Balancing）
-**状态**: 🔴 未实现  
+**状态**: 🟢 已实现  
 **描述**: 当前只支持单个后端服务实例，需要支持多实例负载均衡。
 
 **功能需求**:
-- [ ] 多后端实例配置（upstream/backend pool）
-- [ ] 负载均衡算法（round-robin, least-connections, ip-hash, weighted）
-- [ ] 健康检查驱动的动态路由（自动剔除不健康实例）
-- [ ] 权重配置支持
+- [x] 多后端实例配置（upstream/backend pool）
+- [x] 负载均衡算法（round-robin, least-connections, ip-hash, weighted）
+- [x] 健康检查驱动的动态路由（自动剔除不健康实例）
+- [x] 权重配置支持
 
 **影响**: 无法实现高可用和横向扩展
 
@@ -278,4 +278,5 @@
 
 ## 更新记录
 
-- 2024-12-XX: 初始 TODO 列表创建，基于功能分析
+- 2024-12-01: 初始 TODO 列表创建，基于功能分析
+- 2026-02-01: 负载均衡功能已实现（round-robin、weighted、least-connections、ip-hash 算法，健康检查，多服务器支持）

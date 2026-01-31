@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/go-zoox/api-gateway/config"
+	"github.com/go-zoox/api-gateway/core/loadbalancer"
 	"github.com/go-zoox/api-gateway/plugin"
 	"github.com/go-zoox/zoox"
 	"github.com/go-zoox/zoox/defaults"
@@ -26,6 +27,9 @@ type core struct {
 	cfg     *config.Config
 
 	plugins []plugin.Plugin
+	
+	// Load balancer manager
+	lbManager *loadbalancer.Manager
 }
 
 func New(version string, cfg *config.Config) (Core, error) {

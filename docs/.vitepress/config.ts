@@ -56,6 +56,7 @@ export default defineConfig({
               items: [
                 { text: 'Configuration', link: '/guide/configuration' },
                 { text: 'Routing', link: '/guide/routing' },
+                { text: 'Load Balancing', link: '/guide/load-balancing' },
                 { text: 'Health Check', link: '/guide/health-check' }
               ]
             },
@@ -117,6 +118,7 @@ export default defineConfig({
               items: [
                 { text: '配置说明', link: '/zh/guide/configuration' },
                 { text: '路由配置', link: '/zh/guide/routing' },
+                { text: '负载均衡', link: '/zh/guide/load-balancing' },
                 { text: '健康检查', link: '/zh/guide/health-check' }
               ]
             },

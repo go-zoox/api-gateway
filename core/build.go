@@ -41,28 +41,56 @@ func (c *core) build() error {
 			return true, false, nil
 		}
 
-		if _, err := r.Backend.Service.CheckDNS(); err != nil {
+		// Normalize backend (handles both single-server and multi-server modes)
+		normalizedBackend := r.Backend.Normalize()
+		if normalizedBackend == nil {
+			logger.Errorf("[build][path: %s] no backend configured", ctx.Path)
+			return false, false, proxy.NewHTTPError(503, "no backend configured")
+		}
+
+		// Get load balancer
+		lb := c.lbManager.GetLoadBalancer(normalizedBackend.Algorithm)
+
+		// Select server using load balancer
+		server, err := lb.Select(ctx.Request, normalizedBackend)
+		if err != nil {
+			logger.Errorf("[build][path: %s] failed to select server: %s", ctx.Path, err)
+			return false, false, proxy.NewHTTPError(503, err.Error())
+		}
+
+		// Get effective configuration (merges base config with server-specific overrides)
+		effectiveService := server.GetEffectiveConfig(normalizedBackend.BaseConfig)
+
+		// DNS check (optional, can be skipped based on health check)
+		if _, err := effectiveService.CheckDNS(); err != nil {
 			logger.Errorf("check dns error: %s", err)
 			return false, false, proxy.NewHTTPError(503, ErrServiceUnavailable.Error())
 		}
 
+		// Track connection for least-connections algorithm
+		if normalizedBackend.Algorithm == "least-connections" {
+			lb.OnRequestStart(normalizedBackend, server)
+		}
+
 		cfg.OnRequest = func(req, inReq *http.Request) error {
-			req.URL.Scheme = r.Backend.Service.Protocol
-			req.URL.Host = r.Backend.Service.Host()
+			req.URL.Scheme = effectiveService.Protocol
+			req.URL.Host = server.Host()
 			req.Host = req.URL.Host
 
-			// apply path
-			req.URL.Path = r.Rewrite(req.URL.Path)
+			// apply path rewrite using effective service config
+			req.URL.Path = effectiveService.Rewrite(req.URL.Path)
 
 			// apply headers
-			for k, v := range r.Backend.Service.Request.Headers {
-				req.Header.Set(k, v)
+			if effectiveService.Request.Headers != nil {
+				for k, v := range effectiveService.Request.Headers {
+					req.Header.Set(k, v)
+				}
 			}
 
 			// apply query
-			if r.Backend.Service.Request.Query != nil {
+			if effectiveService.Request.Query != nil {
 				originQuery := req.URL.Query()
-				for k, v := range r.Backend.Service.Request.Query {
+				for k, v := range effectiveService.Request.Query {
 					originQuery.Set(k, v)
 				}
 				req.URL.RawQuery = originQuery.Encode()
@@ -74,14 +102,17 @@ func (c *core) build() error {
 				}
 			}
 
-			ctx.Logger.Infof("[route: %s] %s %s => %s (path: %s)", r.Name, method, path, r.Backend.Service.Target(), req.URL.Path)
+			ctx.Logger.Infof("[route: %s] %s %s => %s (path: %s, algorithm: %s)", r.Name, method, path, server.Target(), req.URL.Path, normalizedBackend.Algorithm)
 
 			return nil
 		}
 
 		cfg.OnResponse = func(res *http.Response, inReq *http.Request) error {
-			for k, v := range r.Backend.Service.Response.Headers {
-				res.Header.Set(k, v)
+			// Apply response headers from effective service config
+			if effectiveService.Response.Headers != nil {
+				for k, v := range effectiveService.Response.Headers {
+					res.Header.Set(k, v)
+				}
 			}
 
 			for _, plugin := range c.plugins {
@@ -91,6 +122,12 @@ func (c *core) build() error {
 			}
 
 			res.Header.Set("X-Powered-By", fmt.Sprintf("gozoox-api-gateway/%s", c.version))
+
+			// Decrement connection count for least-connections algorithm
+			if normalizedBackend.Algorithm == "least-connections" {
+				lb.OnRequestEnd(normalizedBackend, server)
+			}
+
 			return nil
 		}
 

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/go-zoox/api-gateway/core/loadbalancer"
 	"github.com/go-zoox/api-gateway/plugin/baseuri"
 	"github.com/go-zoox/kv"
 	"github.com/go-zoox/kv/redis"
@@ -12,9 +13,42 @@ func (c *core) prepare() error {
 		return err
 	}
 
+	// prepare load balancer manager
+	if err := c.prepareLoadBalancer(); err != nil {
+		return err
+	}
+
 	// prepare plugins
 	if err := c.preparePlugins(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (c *core) prepareLoadBalancer() error {
+	// Initialize load balancer manager
+	c.lbManager = loadbalancer.NewManager()
+
+	// Start health checks for all backends
+	// Default backend
+	if c.cfg.Backend.Service.Name != "" || len(c.cfg.Backend.Service.Servers) > 0 {
+		normalizedBackend := c.cfg.Backend.Normalize()
+		if normalizedBackend != nil {
+			if err := c.lbManager.StartHealthCheck(normalizedBackend); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Route backends
+	for _, route := range c.cfg.Routes {
+		normalizedBackend := route.Backend.Normalize()
+		if normalizedBackend != nil {
+			if err := c.lbManager.StartHealthCheck(normalizedBackend); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil

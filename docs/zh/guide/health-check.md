@@ -109,6 +109,8 @@ routes:
 | `method` | string | GET | 健康检查的 HTTP 方法 |
 | `path` | string | /health | 健康检查端点路径 |
 | `status` | array | [200] | 有效的 HTTP 状态码 |
+| `interval` | int | 30 | 检查间隔（秒） |
+| `timeout` | int | 5 | 请求超时（秒） |
 | `ok` | bool | false | 始终认为服务健康（跳过检查） |
 
 ### 健康检查行为

@@ -109,6 +109,8 @@ routes:
 | `method` | string | GET | HTTP method for health check |
 | `path` | string | /health | Health check endpoint path |
 | `status` | array | [200] | Valid HTTP status codes |
+| `interval` | int | 30 | Check interval in seconds |
+| `timeout` | int | 5 | Request timeout in seconds |
 | `ok` | bool | false | Always consider service healthy (skip checks) |
 
 ### Health Check Behavior
