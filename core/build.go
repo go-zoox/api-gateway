@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/go-zoox/logger"
 	"github.com/go-zoox/proxy"
@@ -68,8 +69,24 @@ func (c *core) build() error {
 		}
 
 		// Track connection for least-connections algorithm
+		var cleanupOnce *sync.Once
 		if normalizedBackend.Algorithm == "least-connections" {
 			lb.OnRequestStart(normalizedBackend, server)
+
+			// Ensure OnRequestEnd is called even if proxy fails
+			// Use sync.Once to ensure it's only called once
+			cleanupOnce = &sync.Once{}
+			cleanup := func() {
+				cleanupOnce.Do(func() {
+					lb.OnRequestEnd(normalizedBackend, server)
+				})
+			}
+
+			// Monitor request context to ensure cleanup on failure
+			go func() {
+				<-ctx.Request.Context().Done()
+				cleanup()
+			}()
 		}
 
 		cfg.OnRequest = func(req, inReq *http.Request) error {
@@ -124,8 +141,11 @@ func (c *core) build() error {
 			res.Header.Set("X-Powered-By", fmt.Sprintf("gozoox-api-gateway/%s", c.version))
 
 			// Decrement connection count for least-connections algorithm
-			if normalizedBackend.Algorithm == "least-connections" {
-				lb.OnRequestEnd(normalizedBackend, server)
+			// This ensures cleanup happens when OnResponse is called (success case)
+			if normalizedBackend.Algorithm == "least-connections" && cleanupOnce != nil {
+				cleanupOnce.Do(func() {
+					lb.OnRequestEnd(normalizedBackend, server)
+				})
 			}
 
 			return nil
