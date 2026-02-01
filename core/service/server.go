@@ -8,13 +8,13 @@ import (
 // Server represents a single backend server instance
 type Server struct {
 	// Required fields
-	Name     string `config:"name"`
-	Port     int64  `config:"port"`
+	Name string `config:"name"`
+	Port int64  `config:"port"`
 
 	// Optional fields
-	Protocol   string      `config:"protocol"`
-	Weight     int64       `config:"weight,default=1"`
-	Disabled   bool        `config:"disabled,default=false"`
+	Protocol string `config:"protocol"`
+	Weight   int64  `config:"weight,default=1"`
+	Disabled bool   `config:"disabled,default=false"`
 
 	// Optional override configurations
 	Request     *Request     `config:"request"`
@@ -48,10 +48,11 @@ func (s *Server) ID() string {
 
 // Host returns the host:port string
 func (s *Server) Host() string {
-	if s.Port == 0 {
-		s.Port = 80
+	port := s.Port
+	if port == 0 {
+		port = 80
 	}
-	return fmt.Sprintf("%s:%d", s.Name, s.Port)
+	return fmt.Sprintf("%s:%d", s.Name, port)
 }
 
 // Target returns the full target URL

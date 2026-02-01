@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -44,6 +45,43 @@ func TestServerHost(t *testing.T) {
 
 		if actual != expected {
 			t.Errorf("Server Host 不匹配，期望: %s, 实际: %s", expected, actual)
+		}
+	})
+
+	t.Run("ConcurrentAccess", func(t *testing.T) {
+		// Test that Host() is safe for concurrent access
+		server := &Server{
+			Name: "example.com",
+			Port: 0,
+		}
+
+		var wg sync.WaitGroup
+		goroutines := 100
+		iterations := 100
+
+		// Launch multiple goroutines that call Host() concurrently
+		for i := 0; i < goroutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < iterations; j++ {
+					host := server.Host()
+					if host != "example.com:80" {
+						t.Errorf("Expected 'example.com:80', got '%s'", host)
+					}
+					// Verify Port field was not mutated
+					if server.Port != 0 {
+						t.Errorf("Port field should not be mutated, expected 0, got %d", server.Port)
+					}
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Final verification that Port was not mutated
+		if server.Port != 0 {
+			t.Errorf("Port field should remain 0 after concurrent access, got %d", server.Port)
 		}
 	})
 }
