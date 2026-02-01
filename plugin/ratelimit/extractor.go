@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"net"
 	"net/http"
 	"strings"
 
@@ -60,9 +61,10 @@ func (e *IPExtractor) Extract(ctx *zoox.Context, req *http.Request) (string, err
 	// Fallback to RemoteAddr
 	remoteAddr := req.RemoteAddr
 	if remoteAddr != "" {
-		// Remove port if present
-		if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
-			remoteAddr = remoteAddr[:idx]
+		// Remove port if present using net.SplitHostPort for proper IPv6 handling
+		host, _, err := net.SplitHostPort(remoteAddr)
+		if err == nil {
+			remoteAddr = host
 		}
 		return "ip:" + remoteAddr, nil
 	}
