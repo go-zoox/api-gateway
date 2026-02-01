@@ -48,13 +48,35 @@ func (s *MemoryStorage) Allow(ctx context.Context, key string, limit int64, wind
 				resetTime: now.Add(window),
 			}
 			s.store[key] = entry
-		} else {
-			entry.mu.Lock()
-			entry.count++
-			entry.mu.Unlock()
+			s.mu.Unlock()
+			return true, limit - 1, entry.resetTime, nil
 		}
+		// Entry was created by another goroutine, need to check limit
+		entry.mu.Lock()
+		// Check if window has expired
+		if now.After(entry.resetTime) {
+			entry.count = 1
+			entry.resetTime = now.Add(window)
+			entry.mu.Unlock()
+			s.mu.Unlock()
+			return true, limit - 1, entry.resetTime, nil
+		}
+		// Check if limit exceeded before incrementing
+		if entry.count >= limit {
+			remaining := int64(0)
+			entry.mu.Unlock()
+			s.mu.Unlock()
+			return false, remaining, entry.resetTime, nil
+		}
+		// Increment count
+		entry.count++
+		remaining := limit - entry.count
+		if remaining < 0 {
+			remaining = 0
+		}
+		entry.mu.Unlock()
 		s.mu.Unlock()
-		return true, limit - 1, entry.resetTime, nil
+		return true, remaining, entry.resetTime, nil
 	}
 
 	entry.mu.Lock()

@@ -172,3 +172,51 @@ func TestMemoryStorage_DifferentKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestMemoryStorage_Allow_RaceCondition tests the specific race condition
+// where multiple goroutines race to create a rate limit entry.
+// With limit=2, only 2 requests should be allowed even if 3+ goroutines race.
+func TestMemoryStorage_Allow_RaceCondition(t *testing.T) {
+	storage := NewMemoryStorage()
+	defer storage.Close()
+
+	ctx := context.Background()
+	key := "test-key-race"
+	limit := int64(2)
+	window := 1 * time.Second
+
+	// Launch 3 goroutines simultaneously to race for creating the entry
+	var wg sync.WaitGroup
+	var allowedCount int64
+	var mu sync.Mutex
+
+	// Use a barrier to ensure all goroutines start at roughly the same time
+	start := make(chan struct{})
+
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // Wait for signal to start
+			allowed, _, _, err := storage.Allow(ctx, key, limit, window)
+			if err != nil {
+				t.Errorf("Allow() error = %v", err)
+				return
+			}
+			mu.Lock()
+			if allowed {
+				allowedCount++
+			}
+			mu.Unlock()
+		}()
+	}
+
+	// Signal all goroutines to start simultaneously
+	close(start)
+	wg.Wait()
+
+	// Only 2 requests should be allowed, not 3
+	if allowedCount != limit {
+		t.Errorf("Allowed requests = %d, want %d (race condition not fixed)", allowedCount, limit)
+	}
+}
