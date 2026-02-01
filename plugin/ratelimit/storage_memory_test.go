@@ -89,6 +89,7 @@ func TestMemoryStorage_Allow_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	var allowedCount int64
 	var deniedCount int64
+	var mu sync.Mutex
 	requests := 20
 
 	wg.Add(requests)
@@ -100,11 +101,13 @@ func TestMemoryStorage_Allow_Concurrent(t *testing.T) {
 				t.Errorf("Allow() error = %v", err)
 				return
 			}
+			mu.Lock()
 			if allowed {
 				allowedCount++
 			} else {
 				deniedCount++
 			}
+			mu.Unlock()
 		}()
 	}
 

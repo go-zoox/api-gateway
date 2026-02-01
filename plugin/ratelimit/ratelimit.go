@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -221,8 +222,18 @@ func (r *RateLimit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 // getRateLimitConfig gets rate limit configuration for a route
 // Route-specific config takes precedence over global config
 func (r *RateLimit) getRateLimitConfig(path string) *route.RateLimit {
-	// Check route-specific config
-	for routePath, config := range r.routeConfigs {
+	// Collect route paths and sort by length (longest first) for deterministic matching
+	routePaths := make([]string, 0, len(r.routeConfigs))
+	for routePath := range r.routeConfigs {
+		routePaths = append(routePaths, routePath)
+	}
+	sort.Slice(routePaths, func(i, j int) bool {
+		return len(routePaths[i]) > len(routePaths[j])
+	})
+
+	// Check route-specific config in order of path length (longest first)
+	for _, routePath := range routePaths {
+		config := r.routeConfigs[routePath]
 		// Exact match
 		if path == routePath {
 			return config
