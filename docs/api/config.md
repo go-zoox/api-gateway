@@ -12,6 +12,7 @@ type Config struct {
     Routes   []route.Route  `config:"routes"`
     Cache    Cache          `config:"cache"`
     HealthCheck HealthCheck `config:"healthcheck"`
+    RateLimit RateLimit     `config:"rate_limit"`
 }
 ```
 
@@ -123,6 +124,36 @@ type HealthCheckInner struct {
 - `Enable` (bool): Enable internal service health checks
 - `Interval` (int64): Check interval in seconds. Default: `30`
 - `Timeout` (int64): Request timeout in seconds. Default: `5`
+
+## Rate Limit Configuration
+
+```go
+type RateLimit struct {
+    Enable    bool              `config:"enable"`
+    Algorithm string            `config:"algorithm,default=token-bucket"`
+    Storage   string            `config:"storage,default=memory"`
+    KeyType   string            `config:"key_type,default=ip"`
+    KeyHeader string            `config:"key_header"`
+    Limit     int64             `config:"limit"`
+    Window    int64             `config:"window"`
+    Burst     int64             `config:"burst"`
+    Message   string            `config:"message,default=Too Many Requests"`
+    Headers   map[string]string `config:"headers"`
+}
+```
+
+### Fields
+
+- `Enable` (bool): Enable rate limiting. Default: `false`
+- `Algorithm` (string): Rate limiting algorithm. Options: `token-bucket`, `leaky-bucket`, `fixed-window`. Default: `token-bucket`
+- `Storage` (string): Storage backend. Options: `memory`, `redis`. Default: `memory`
+- `KeyType` (string): Key extraction type. Options: `ip`, `user`, `apikey`, `header`. Default: `ip`
+- `KeyHeader` (string): Header name when `KeyType` is `header`
+- `Limit` (int64): Maximum number of requests allowed in the time window
+- `Window` (int64): Time window in seconds
+- `Burst` (int64): Burst capacity (only for token-bucket algorithm)
+- `Message` (string): Error message when rate limit is exceeded. Default: `"Too Many Requests"`
+- `Headers` (map[string]string): Custom headers to include in rate limit responses
 
 ## Example
 

@@ -160,15 +160,66 @@ func (p *LoggingPlugin) OnResponse(ctx *zoox.Context, res *http.Response) error 
 
 ### Rate Limiting Plugin
 
-```go
-func (p *RateLimitPlugin) OnRequest(ctx *zoox.Context, req *http.Request) error {
-    key := p.getClientKey(req)
-    if !p.rateLimiter.Allow(key) {
-        return fmt.Errorf("rate limit exceeded")
-    }
-    return nil
-}
+The Rate Limiting plugin is automatically enabled when rate limit configuration is present in your gateway configuration. It supports:
+
+- **Multiple key types**: IP address, user ID, API key, or custom header
+- **Multiple algorithms**: Token bucket, leaky bucket, or fixed window
+- **Storage backends**: In-memory (single instance) or Redis (distributed)
+- **Global and route-level configuration**: Configure limits globally or per route
+
+#### Configuration
+
+Rate limiting can be configured globally or per route:
+
+```yaml
+# Global rate limit
+rate_limit:
+  enable: true
+  algorithm: token-bucket
+  storage: redis
+  key_type: ip
+  limit: 100
+  window: 60
+  burst: 20
+  message: "Rate limit exceeded"
+
+routes:
+  - name: User Service
+    path: /v1/user
+    rate_limit:
+      enable: true
+      algorithm: token-bucket
+      storage: memory
+      key_type: user
+      limit: 10
+      window: 60
+      burst: 5
+    backend:
+      service:
+        # ... backend config
 ```
+
+#### Configuration Options
+
+- `enable` (bool): Enable rate limiting. Default: `false`
+- `algorithm` (string): Rate limiting algorithm. Options: `token-bucket`, `leaky-bucket`, `fixed-window`. Default: `token-bucket`
+- `storage` (string): Storage backend. Options: `memory`, `redis`. Default: `memory`
+- `key_type` (string): Key extraction type. Options: `ip`, `user`, `apikey`, `header`. Default: `ip`
+- `key_header` (string): Header name when `key_type` is `header`
+- `limit` (int64): Maximum number of requests allowed in the time window
+- `window` (int64): Time window in seconds
+- `burst` (int64): Burst capacity (only for token-bucket algorithm)
+- `message` (string): Error message when rate limit is exceeded. Default: `"Too Many Requests"`
+- `headers` (map[string]string): Custom headers to include in rate limit responses
+
+#### Response Headers
+
+When rate limiting is active, the following headers are included in responses:
+
+- `X-RateLimit-Limit`: The rate limit ceiling for the given request
+- `X-RateLimit-Remaining`: The number of requests left for the time window
+- `X-RateLimit-Reset`: The time at which the current rate limit window resets (Unix timestamp)
+- `Retry-After`: The number of seconds to wait before retrying (only on 429 responses)
 
 ## Best Practices
 
