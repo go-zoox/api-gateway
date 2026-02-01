@@ -209,8 +209,16 @@ func (r *RateLimit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 func (r *RateLimit) getRateLimitConfig(path string) *route.RateLimit {
 	// Check route-specific config
 	for routePath, config := range r.routeConfigs {
-		if path == routePath || (len(path) >= len(routePath) && path[:len(routePath)] == routePath) {
+		// Exact match
+		if path == routePath {
 			return config
+		}
+		// Prefix match: path must start with routePath AND the next character (if any) must be '/'
+		if len(path) > len(routePath) && path[:len(routePath)] == routePath {
+			// Check if the character after the prefix is a path separator
+			if path[len(routePath)] == '/' {
+				return config
+			}
 		}
 	}
 
@@ -221,4 +229,3 @@ func (r *RateLimit) getRateLimitConfig(path string) *route.RateLimit {
 
 	return nil
 }
-

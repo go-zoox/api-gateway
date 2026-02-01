@@ -243,3 +243,75 @@ func TestRateLimit_InvalidConfig(t *testing.T) {
 		t.Errorf("OnRequest() error = %v, want nil (invalid config should be skipped)", err)
 	}
 }
+
+func TestRateLimit_PathBoundaryMatching(t *testing.T) {
+	// Test cases: path -> should match /users route?
+	testCases := []struct {
+		path         string
+		shouldMatch  bool
+		description  string
+	}{
+		{"/users", true, "exact match"},
+		{"/users/", true, "exact match with trailing slash"},
+		{"/users/123", true, "prefix match with /"},
+		{"/users/test", true, "prefix match with /"},
+		{"/users-admin/test", false, "should NOT match - prefix but next char is -"},
+		{"/usersadmin", false, "should NOT match - prefix but no / boundary"},
+		{"/user", false, "should NOT match - shorter path"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			// Create a fresh plugin for each test case to avoid state sharing
+			plugin := New()
+			app := defaults.Default()
+			cfg := &config.Config{
+				Routes: []route.Route{
+					{
+						Path: "/users",
+						RateLimit: route.RateLimit{
+							Enable:    true,
+							Algorithm: "fixed-window",
+							Storage:   "memory",
+							KeyType:   "ip",
+							Limit:     5,
+							Window:    60,
+						},
+					},
+				},
+			}
+
+			err := plugin.Prepare(app, cfg)
+			if err != nil {
+				t.Fatalf("Prepare() error = %v", err)
+			}
+
+			// Make requests to see if rate limiting is applied
+			// If route matches, 6th request should be blocked
+			// If route doesn't match, all requests should pass (no rate limiting)
+			for i := 0; i < 6; i++ {
+				req := httptest.NewRequest("GET", tc.path, nil)
+				ctx := createTestContext(req)
+				err = plugin.OnRequest(ctx, req)
+
+				if tc.shouldMatch {
+					// Route should match, so 6th request should be blocked
+					if i == 5 {
+						if err == nil {
+							t.Errorf("OnRequest() for path %s: expected rate limit error on 6th request, got nil", tc.path)
+						}
+					} else {
+						if err != nil {
+							t.Errorf("OnRequest() for path %s: unexpected error on request %d: %v", tc.path, i+1, err)
+						}
+					}
+				} else {
+					// Route should NOT match, so all requests should pass (no rate limiting applied)
+					if err != nil {
+						t.Errorf("OnRequest() for path %s: unexpected error (route should not match): %v", tc.path, err)
+					}
+				}
+			}
+		})
+	}
+}
