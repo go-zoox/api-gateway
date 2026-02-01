@@ -101,7 +101,7 @@ func (r *RateLimit) initializeStorages(app *zoox.Application, cfg *config.Config
 // OnRequest checks rate limit before forwarding request
 func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 	// Get route-specific or global rate limit configuration
-	rateLimitConfig := r.getRateLimitConfig(ctx.Path)
+	rateLimitConfig, routePath := r.getRateLimitConfigWithRoute(ctx.Path)
 	if rateLimitConfig == nil || !rateLimitConfig.Enable {
 		return nil // Rate limiting disabled for this route
 	}
@@ -124,6 +124,9 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 		ctx.Logger.Warnf("[plugin:ratelimit] failed to extract key: %s", err)
 		return nil // Skip rate limiting on extraction error
 	}
+
+	// Include route path in key to ensure different routes have separate counters
+	key = routePath + ":" + key
 
 	// Get storage
 	storageType := rateLimitConfig.Storage
@@ -178,8 +181,14 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 			retryAfter = 0
 		}
 
-		// Set custom headers if configured (will be applied in error response)
-		// For now, we'll rely on the error response to include these
+		// Set rate limit headers directly on the response
+		// Since OnResponse is not called for error responses, we set headers here
+		if ctx.Writer != nil {
+			ctx.SetHeader("Retry-After", strconv.FormatInt(retryAfter, 10))
+			ctx.SetHeader("X-RateLimit-Limit", strconv.FormatInt(rateLimitConfig.Limit, 10))
+			ctx.SetHeader("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
+			ctx.SetHeader("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
+		}
 
 		ctx.Logger.Warnf("[plugin:ratelimit] rate limit exceeded for key: %s, remaining: %d", key, remaining)
 		return proxy.NewHTTPError(429, message)
@@ -207,18 +216,29 @@ func (r *RateLimit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 // getRateLimitConfig gets rate limit configuration for a route
 // Route-specific config takes precedence over global config
 func (r *RateLimit) getRateLimitConfig(path string) *route.RateLimit {
+	config, _ := r.getRateLimitConfigWithRoute(path)
+	return config
+}
+
+// getRateLimitConfigWithRoute gets rate limit configuration and matched route path
+// Route-specific config takes precedence over global config
+func (r *RateLimit) getRateLimitConfigWithRoute(path string) (*route.RateLimit, string) {
 	// Check route-specific config
 	for routePath, config := range r.routeConfigs {
-		if path == routePath || (len(path) >= len(routePath) && path[:len(routePath)] == routePath) {
-			return config
+		if path == routePath {
+			return config, routePath
+		}
+		// Check prefix match with proper path boundary
+		if len(path) > len(routePath) && path[:len(routePath)] == routePath && path[len(routePath)] == '/' {
+			return config, routePath
 		}
 	}
 
 	// Fall back to global config
 	if r.globalConfig.Enable {
-		return &r.globalConfig
+		return &r.globalConfig, "_global_"
 	}
 
-	return nil
+	return nil, ""
 }
 

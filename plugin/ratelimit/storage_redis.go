@@ -40,17 +40,26 @@ func NewRedisStorage(cache interface{}) (*RedisStorage, error) {
 // Allow checks if a request is allowed using Redis
 func (s *RedisStorage) Allow(ctx context.Context, key string, limit int64, window time.Duration) (bool, int64, time.Time, error) {
 	now := time.Now()
-	redisKey := fmt.Sprintf("ratelimit:%s", key)
+	windowSeconds := int64(window.Seconds())
+	// Include window timestamp in key to ensure fixed windows
+	// This creates a new key for each window period
+	windowStart := now.Unix() / windowSeconds * windowSeconds
+	redisKey := fmt.Sprintf("ratelimit:%s:%d", key, windowStart)
+	resetTime := time.Unix(windowStart+windowSeconds, 0)
 
 	// Get current count
 	var count int64
 	if err := s.cache.Get(redisKey, &count); err != nil {
 		// Key doesn't exist, create it with count = 1
 		count = 1
-		if err := s.cache.Set(redisKey, count, window); err != nil {
+		// Set TTL to the remaining time in the current window
+		ttl := time.Until(resetTime)
+		if ttl <= 0 {
+			ttl = window
+		}
+		if err := s.cache.Set(redisKey, count, ttl); err != nil {
 			return false, 0, time.Time{}, fmt.Errorf("failed to set rate limit key: %w", err)
 		}
-		resetTime := now.Add(window)
 		remaining := limit - count
 		if remaining < 0 {
 			remaining = 0
@@ -60,15 +69,17 @@ func (s *RedisStorage) Allow(ctx context.Context, key string, limit int64, windo
 
 	// Check if limit exceeded
 	if count >= limit {
-		// Estimate reset time based on window
-		// Note: This is approximate since we don't have TTL info
-		resetTime := now.Add(window)
 		return false, 0, resetTime, nil
 	}
 
 	// Increment count
 	count++
-	if err := s.cache.Set(redisKey, count, window); err != nil {
+	// Set TTL to the remaining time in the current window
+	ttl := time.Until(resetTime)
+	if ttl <= 0 {
+		ttl = window
+	}
+	if err := s.cache.Set(redisKey, count, ttl); err != nil {
 		return false, 0, time.Time{}, fmt.Errorf("failed to update rate limit key: %w", err)
 	}
 
@@ -76,7 +87,6 @@ func (s *RedisStorage) Allow(ctx context.Context, key string, limit int64, windo
 	if remaining < 0 {
 		remaining = 0
 	}
-	resetTime := now.Add(window)
 
 	return true, remaining, resetTime, nil
 }

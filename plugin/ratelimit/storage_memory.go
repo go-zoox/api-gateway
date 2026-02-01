@@ -8,8 +8,9 @@ import (
 
 // MemoryStorage implements in-memory rate limit storage
 type MemoryStorage struct {
-	mu    sync.RWMutex
-	store map[string]*rateLimitEntry
+	mu       sync.RWMutex
+	store    map[string]*rateLimitEntry
+	stopChan chan struct{}
 }
 
 type rateLimitEntry struct {
@@ -21,7 +22,8 @@ type rateLimitEntry struct {
 // NewMemoryStorage creates a new in-memory storage
 func NewMemoryStorage() *MemoryStorage {
 	storage := &MemoryStorage{
-		store: make(map[string]*rateLimitEntry),
+		store:    make(map[string]*rateLimitEntry),
+		stopChan: make(chan struct{}),
 	}
 
 	// Start cleanup goroutine to remove expired entries
@@ -48,13 +50,35 @@ func (s *MemoryStorage) Allow(ctx context.Context, key string, limit int64, wind
 				resetTime: now.Add(window),
 			}
 			s.store[key] = entry
-		} else {
-			entry.mu.Lock()
-			entry.count++
-			entry.mu.Unlock()
+			s.mu.Unlock()
+			return true, limit - 1, entry.resetTime, nil
 		}
+		// Entry was created by another goroutine between RLock and Lock
+		// We need to check the limit before allowing
 		s.mu.Unlock()
-		return true, limit - 1, entry.resetTime, nil
+
+		entry.mu.Lock()
+		defer entry.mu.Unlock()
+
+		// Check if window has expired
+		if now.After(entry.resetTime) {
+			entry.count = 1
+			entry.resetTime = now.Add(window)
+			return true, limit - 1, entry.resetTime, nil
+		}
+
+		// Check if limit exceeded
+		if entry.count >= limit {
+			return false, 0, entry.resetTime, nil
+		}
+
+		// Increment count
+		entry.count++
+		remaining := limit - entry.count
+		if remaining < 0 {
+			remaining = 0
+		}
+		return true, remaining, entry.resetTime, nil
 	}
 
 	entry.mu.Lock()
@@ -96,7 +120,7 @@ func (s *MemoryStorage) Reset(ctx context.Context, key string) error {
 
 // Close closes the storage
 func (s *MemoryStorage) Close() error {
-	// Nothing to close for in-memory storage
+	close(s.stopChan)
 	return nil
 }
 
@@ -105,16 +129,21 @@ func (s *MemoryStorage) cleanup() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		s.mu.Lock()
-		for key, entry := range s.store {
-			entry.mu.Lock()
-			if now.After(entry.resetTime) {
-				delete(s.store, key)
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			s.mu.Lock()
+			for key, entry := range s.store {
+				entry.mu.Lock()
+				if now.After(entry.resetTime) {
+					delete(s.store, key)
+				}
+				entry.mu.Unlock()
 			}
-			entry.mu.Unlock()
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }
