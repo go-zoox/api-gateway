@@ -178,8 +178,18 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 			retryAfter = 0
 		}
 
-		// Set custom headers if configured (will be applied in error response)
-		// For now, we'll rely on the error response to include these
+		// Store retryAfter in context for potential use in OnResponse
+		reqCtx = context.WithValue(reqCtx, "ratelimit:retryAfter", retryAfter)
+		*req = *req.WithContext(reqCtx)
+
+		// Set rate limit headers directly on the response since OnResponse won't be called for errors
+		// Check if Writer is available (may be nil in test environments)
+		if ctx.Writer != nil {
+			ctx.Writer.Header().Set("X-RateLimit-Limit", strconv.FormatInt(rateLimitConfig.Limit, 10))
+			ctx.Writer.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
+			ctx.Writer.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
+			ctx.Writer.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
+		}
 
 		ctx.Logger.Warnf("[plugin:ratelimit] rate limit exceeded for key: %s, remaining: %d", key, remaining)
 		return proxy.NewHTTPError(429, message)
@@ -200,6 +210,10 @@ func (r *RateLimit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 	}
 	if reset, ok := reqCtx.Value("ratelimit:reset").(int64); ok {
 		res.Header.Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+	}
+	// Set Retry-After header if available (for successful responses, this may not be set)
+	if retryAfter, ok := reqCtx.Value("ratelimit:retryAfter").(int64); ok {
+		res.Header.Set("Retry-After", strconv.FormatInt(retryAfter, 10))
 	}
 	return nil
 }
