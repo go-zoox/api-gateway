@@ -116,3 +116,53 @@ func TestRoundRobinDisabledServer(t *testing.T) {
 		t.Errorf("应该选择启用的服务器, 实际: %s", selected.ID())
 	}
 }
+
+func TestGetBackendIDUniqueness(t *testing.T) {
+	// Test that backends with the same first server but different additional servers
+	// get different backend IDs
+	backend1 := &route.NormalizedBackend{
+		Algorithm: "round-robin",
+		Servers: []*service.Server{
+			{Name: "server1.com", Port: 8080},
+			{Name: "server2.com", Port: 8080},
+		},
+		BaseConfig: &service.Service{},
+	}
+
+	backend2 := &route.NormalizedBackend{
+		Algorithm: "round-robin",
+		Servers: []*service.Server{
+			{Name: "server1.com", Port: 8080}, // Same first server
+			{Name: "server3.com", Port: 8080}, // Different second server
+		},
+		BaseConfig: &service.Service{},
+	}
+
+	backend3 := &route.NormalizedBackend{
+		Algorithm: "round-robin",
+		Servers: []*service.Server{
+			{Name: "server1.com", Port: 8080},
+			{Name: "server2.com", Port: 8080},
+		},
+		BaseConfig: &service.Service{},
+	}
+
+	id1 := getBackendID(backend1)
+	id2 := getBackendID(backend2)
+	id3 := getBackendID(backend3)
+
+	// Backend1 and Backend2 should have different IDs (different server sets)
+	if id1 == id2 {
+		t.Errorf("Backends with different server sets should have different IDs. ID1: %s, ID2: %s", id1, id2)
+	}
+
+	// Backend1 and Backend3 should have the same ID (same server sets)
+	if id1 != id3 {
+		t.Errorf("Backends with the same server sets should have the same ID. ID1: %s, ID3: %s", id1, id3)
+	}
+
+	// Verify IDs are not empty
+	if id1 == "" || id2 == "" || id3 == "" {
+		t.Error("Backend IDs should not be empty")
+	}
+}

@@ -1,8 +1,11 @@
 package loadbalancer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -25,13 +28,13 @@ func NewRoundRobin() *RoundRobin {
 
 // Select chooses a server using round-robin algorithm
 func (rr *RoundRobin) Select(req *http.Request, backend *route.NormalizedBackend) (*service.Server, error) {
-		// Filter healthy and enabled servers
-		healthyServers := make([]*service.Server, 0)
-		for _, server := range backend.Servers {
-			if !server.Disabled && server.IsHealthy() {
-				healthyServers = append(healthyServers, server)
-			}
+	// Filter healthy and enabled servers
+	healthyServers := make([]*service.Server, 0)
+	for _, server := range backend.Servers {
+		if !server.Disabled && server.IsHealthy() {
+			healthyServers = append(healthyServers, server)
 		}
+	}
 
 	if len(healthyServers) == 0 {
 		return nil, fmt.Errorf("no healthy servers available")
@@ -69,10 +72,29 @@ func (rr *RoundRobin) OnRequestEnd(backend *route.NormalizedBackend, server *ser
 	// Round-robin doesn't track connections
 }
 
-// getBackendID generates a unique ID for a backend
+// getBackendID generates a unique ID for a backend based on all servers
 func getBackendID(backend *route.NormalizedBackend) string {
 	if len(backend.Servers) == 0 {
 		return "empty"
 	}
-	return backend.Servers[0].ID()
+
+	// Collect all server IDs
+	serverIDs := make([]string, 0, len(backend.Servers))
+	for _, server := range backend.Servers {
+		serverIDs = append(serverIDs, server.ID())
+	}
+
+	// Sort for deterministic output (same set of servers = same ID regardless of order)
+	sort.Strings(serverIDs)
+
+	// Create a hash from all server IDs
+	hasher := sha256.New()
+	for _, id := range serverIDs {
+		hasher.Write([]byte(id))
+		hasher.Write([]byte("|")) // Separator to ensure uniqueness
+	}
+	hash := hasher.Sum(nil)
+
+	// Return hex-encoded hash (first 16 bytes for readability)
+	return hex.EncodeToString(hash[:16])
 }
