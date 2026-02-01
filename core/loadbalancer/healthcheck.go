@@ -148,9 +148,33 @@ func (hc *healthChecker) checkAll(client *http.Client) {
 // checkServer checks the health of a single server
 func (hc *healthChecker) checkServer(server *service.Server, client *http.Client) {
 	// Get health check configuration (server-level or backend-level)
+	// Merge server override with base config to preserve base values when override has zero values
 	healthCheck := hc.backend.BaseConfig.HealthCheck
 	if server.HealthCheck != nil {
-		healthCheck = *server.HealthCheck
+		override := *server.HealthCheck
+		// Merge: only override fields that are explicitly set (non-zero/non-empty)
+		// For Enable: only override if explicitly set to true (preserve base if false/zero-value)
+		if override.Enable {
+			healthCheck.Enable = override.Enable
+		}
+		if override.Method != "" {
+			healthCheck.Method = override.Method
+		}
+		if override.Path != "" {
+			healthCheck.Path = override.Path
+		}
+		if override.Status != nil {
+			healthCheck.Status = override.Status
+		}
+		if override.Interval > 0 {
+			healthCheck.Interval = override.Interval
+		}
+		if override.Timeout > 0 {
+			healthCheck.Timeout = override.Timeout
+		}
+		if override.Ok {
+			healthCheck.Ok = override.Ok
+		}
 	}
 
 	// Skip if health check is disabled or always OK
