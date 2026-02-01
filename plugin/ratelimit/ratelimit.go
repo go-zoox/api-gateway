@@ -189,6 +189,11 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 			ctx.Writer.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
 			ctx.Writer.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
 			ctx.Writer.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
+
+			// Apply custom headers from configuration
+			for headerName, headerValue := range rateLimitConfig.Headers {
+				ctx.Writer.Header().Set(headerName, headerValue)
+			}
 		}
 
 		ctx.Logger.Warnf("[plugin:ratelimit] rate limit exceeded for key: %s, remaining: %d", key, remaining)
