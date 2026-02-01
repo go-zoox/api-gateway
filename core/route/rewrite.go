@@ -18,10 +18,25 @@ func (r *Route) Rewrite(path string) string {
 			if r.PathType == "prefix" && r.Path == "/" {
 				// home should not rewrite
 			} else {
-				baseConfig.Request.Path.Rewrites = append(
-					baseConfig.Request.Path.Rewrites,
-					fmt.Sprintf("^%s(.*)$:$1", r.Path),
-				)
+				// Generate the rewrite rule
+				rewriteRule := fmt.Sprintf("^%s(.*)$:$1", r.Path)
+
+				// Check if the rewrite rule already exists to avoid duplicates
+				exists := false
+				for _, existingRule := range baseConfig.Request.Path.Rewrites {
+					if existingRule == rewriteRule {
+						exists = true
+						break
+					}
+				}
+
+				// Only append if it doesn't already exist
+				if !exists {
+					baseConfig.Request.Path.Rewrites = append(
+						baseConfig.Request.Path.Rewrites,
+						rewriteRule,
+					)
+				}
 			}
 		}
 	}

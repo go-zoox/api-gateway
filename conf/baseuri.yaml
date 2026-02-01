@@ -1,6 +1,6 @@
 port: 8090
 
-# baseuri: /v1
+baseuri: /v1
 
 routes:
   - name: uuid
