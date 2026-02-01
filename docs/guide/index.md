@@ -20,9 +20,11 @@ API Gateway is an easy, powerful, and flexible self-hosted API gateway built wit
 - [Installation](/guide/installation) - Installation methods and requirements
 - [Configuration](/guide/configuration) - Complete configuration reference
 - [Routing](/guide/routing) - Learn about routing and path matching
+- [Load Balancing](/guide/load-balancing) - Load balancing algorithms and configuration
 - [Plugins](/guide/plugins) - Plugin system and development
 - [Health Check](/guide/health-check) - Health check configuration
 - [Examples](/guide/examples) - Real-world examples and use cases
+- [TODO List](/TODO) - Development roadmap and planned features
 
 ## Getting Help
 

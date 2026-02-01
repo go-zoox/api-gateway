@@ -1,15 +1,19 @@
 package service
 
 type Service struct {
+	// === 单服务模式字段（向后兼容）===
 	Name     string `config:"name"`
 	Port     int64  `config:"port"`
 	Protocol string `config:"protocol,default=http"`
-	//
-	Request  Request  `config:"request"`
-	Response Response `config:"response"`
-	//
-	Auth Auth `config:"auth"`
-	//
+	
+	// === 多服务模式字段 ===
+	Algorithm string   `config:"algorithm,default=round-robin"`
+	Servers   []Server `config:"servers"`
+	
+	// === 共享配置 ===
+	Request     Request     `config:"request"`
+	Response    Response    `config:"response"`
+	Auth        Auth        `config:"auth"`
 	HealthCheck HealthCheck `config:"health_check"`
 }
 
@@ -35,6 +39,11 @@ type HealthCheck struct {
 	Method string  `config:"method,default=GET"`
 	Path   string  `config:"path,default=/health"`
 	Status []int64 `config:"status,default=[200]"`
+
+	// Interval is the health check interval in seconds
+	Interval int64 `config:"interval"`
+	// Timeout is the health check timeout in seconds
+	Timeout int64 `config:"timeout"`
 
 	// ok means health check is ok, ignore real check
 	Ok bool `config:"ok"`

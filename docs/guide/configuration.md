@@ -102,6 +102,18 @@ routes:                  # Route definitions
 | `interval` | int | No | 30 | Check interval in seconds |
 | `timeout` | int | No | 5 | Request timeout in seconds |
 
+#### Service Health Check
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enable` | bool | No | false | Enable health check for this service |
+| `method` | string | No | GET | HTTP method for health check |
+| `path` | string | No | /health | Health check endpoint path |
+| `status` | array | No | [200] | Valid HTTP status codes |
+| `interval` | int | No | 30 | Check interval in seconds |
+| `timeout` | int | No | 5 | Request timeout in seconds |
+| `ok` | bool | No | false | Always consider healthy (skip checks) |
+
 ### Route Configuration
 
 | Field | Type | Required | Default | Description |
@@ -116,12 +128,30 @@ routes:                  # Route definitions
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `protocol` | string | No | http | Protocol: `http` or `https` |
-| `name` | string | Yes | - | Service hostname or IP |
-| `port` | int | No | 80 | Service port |
+| `name` | string | No* | - | Service hostname or IP (required for single-server mode) |
+| `port` | int | No* | 80 | Service port (required for single-server mode) |
+| `algorithm` | string | No | round-robin | Load balancing algorithm: `round-robin`, `weighted`, `least-connections`, `ip-hash` |
+| `servers` | array | No | [] | Server instances for load balancing (if set, enables multi-server mode) |
 | `request` | object | No | - | Request transformation |
 | `response` | object | No | - | Response transformation |
 | `auth` | object | No | - | Authentication configuration |
 | `health_check` | object | No | - | Service-specific health check |
+
+**Note:** For single-server mode, `name` and `port` are required. For multi-server mode, `servers` array is required.
+
+#### Server Configuration (for multi-server mode)
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | string | Yes | - | Server hostname or IP |
+| `port` | int | Yes | - | Server port |
+| `protocol` | string | No | - | Protocol (inherits from service if not set) |
+| `weight` | int | No | 1 | Weight for weighted algorithm |
+| `disabled` | bool | No | false | Disable server (server is enabled by default) |
+| `request` | object | No | - | Server-specific request configuration (overrides global) |
+| `response` | object | No | - | Server-specific response configuration (overrides global) |
+| `auth` | object | No | - | Server-specific authentication (overrides global) |
+| `health_check` | object | No | - | Server-specific health check (overrides global) |
 
 ### Request Configuration
 
@@ -173,8 +203,13 @@ Patterns use regular expressions. The replacement can reference capture groups.
 
 See [Examples](/guide/examples) for complete configuration examples.
 
+## Load Balancing
+
+For load balancing configuration, see [Load Balancing](/guide/load-balancing) guide.
+
 ## Next Steps
 
 - [Routing](/guide/routing) - Learn about routing and path matching
+- [Load Balancing](/guide/load-balancing) - Configure load balancing
 - [Health Check](/guide/health-check) - Configure health checks
 - [Plugins](/guide/plugins) - Extend functionality with plugins

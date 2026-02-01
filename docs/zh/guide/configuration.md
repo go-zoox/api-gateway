@@ -115,12 +115,30 @@ routes:                  # 路由定义
 | 字段 | 类型 | 必需 | 默认值 | 描述 |
 |------|------|------|--------|------|
 | `protocol` | string | 否 | http | 协议：`http` 或 `https` |
-| `name` | string | 是 | - | 服务主机名或 IP |
-| `port` | int | 否 | 80 | 服务端口 |
+| `name` | string | 否* | - | 服务主机名或 IP（单服务模式必需） |
+| `port` | int | 否* | 80 | 服务端口（单服务模式必需） |
+| `algorithm` | string | 否 | round-robin | 负载均衡算法：`round-robin`、`weighted`、`least-connections`、`ip-hash` |
+| `servers` | array | 否 | [] | 负载均衡的服务器实例列表（如果设置，启用多服务模式） |
 | `request` | object | 否 | - | 请求转换 |
 | `response` | object | 否 | - | 响应转换 |
 | `auth` | object | 否 | - | 身份验证配置 |
 | `health_check` | object | 否 | - | 服务特定的健康检查 |
+
+**注意：** 单服务模式下，`name` 和 `port` 是必需的。多服务模式下，`servers` 数组是必需的。
+
+#### 服务器配置（多服务模式）
+
+| 字段 | 类型 | 必需 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `name` | string | 是 | - | 服务器主机名或 IP |
+| `port` | int | 是 | - | 服务器端口 |
+| `protocol` | string | 否 | - | 协议（未设置时继承服务配置） |
+| `weight` | int | 否 | 1 | 权重（用于 weighted 算法） |
+| `disabled` | bool | 否 | false | 禁用服务器（服务器默认启用） |
+| `request` | object | 否 | - | 服务器特定的请求配置（覆盖全局） |
+| `response` | object | 否 | - | 服务器特定的响应配置（覆盖全局） |
+| `auth` | object | 否 | - | 服务器特定的身份验证（覆盖全局） |
+| `health_check` | object | 否 | - | 服务器特定的健康检查（覆盖全局） |
 
 ### 请求配置
 
@@ -172,8 +190,13 @@ routes:                  # 路由定义
 
 查看[示例](/zh/guide/examples)了解完整的配置示例。
 
+## 负载均衡
+
+有关负载均衡配置，请参阅[负载均衡](/zh/guide/load-balancing)指南。
+
 ## 下一步
 
 - [路由](/zh/guide/routing) - 了解路由和路径匹配
+- [负载均衡](/zh/guide/load-balancing) - 配置负载均衡
 - [健康检查](/zh/guide/health-check) - 配置健康检查
 - [插件](/zh/guide/plugins) - 使用插件扩展功能
