@@ -17,6 +17,8 @@ type Config struct {
 	//
 	HealthCheck HealthCheck `config:"healthcheck"`
 	//
+	RateLimit RateLimit `config:"rate_limit"`
+	//
 	// Match func(path string) (r *route.Route, err error)
 }
 
@@ -58,3 +60,6 @@ type SSLCert struct {
 	Certificate    string `config:"certificate"`
 	CertificateKey string `config:"certificate_key"`
 }
+
+// RateLimit uses route.RateLimit to avoid circular dependency
+type RateLimit = route.RateLimit
