@@ -8,6 +8,12 @@ import (
 	"github.com/go-zoox/kv"
 )
 
+// redisRateLimitEntry stores both count and resetTime to maintain fixed window
+type redisRateLimitEntry struct {
+	Count     int64     `json:"count"`
+	ResetTime time.Time `json:"reset_time"`
+}
+
 // RedisStorage implements Redis-based rate limit storage
 type RedisStorage struct {
 	cache kv.KV
@@ -42,16 +48,37 @@ func (s *RedisStorage) Allow(ctx context.Context, key string, limit int64, windo
 	now := time.Now()
 	redisKey := fmt.Sprintf("ratelimit:%s", key)
 
-	// Get current count
-	var count int64
-	if err := s.cache.Get(redisKey, &count); err != nil {
+	// Get current entry
+	var entry redisRateLimitEntry
+	if err := s.cache.Get(redisKey, &entry); err != nil {
 		// Key doesn't exist, create it with count = 1
-		count = 1
-		if err := s.cache.Set(redisKey, count, window); err != nil {
+		resetTime := now.Add(window)
+		entry = redisRateLimitEntry{
+			Count:     1,
+			ResetTime: resetTime,
+		}
+		if err := s.cache.Set(redisKey, entry, window); err != nil {
 			return false, 0, time.Time{}, fmt.Errorf("failed to set rate limit key: %w", err)
 		}
+		remaining := limit - entry.Count
+		if remaining < 0 {
+			remaining = 0
+		}
+		return true, remaining, resetTime, nil
+	}
+
+	// Check if window has expired
+	if now.After(entry.ResetTime) {
+		// Window expired, reset count to 1
 		resetTime := now.Add(window)
-		remaining := limit - count
+		entry = redisRateLimitEntry{
+			Count:     1,
+			ResetTime: resetTime,
+		}
+		if err := s.cache.Set(redisKey, entry, window); err != nil {
+			return false, 0, time.Time{}, fmt.Errorf("failed to reset rate limit key: %w", err)
+		}
+		remaining := limit - entry.Count
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -59,26 +86,31 @@ func (s *RedisStorage) Allow(ctx context.Context, key string, limit int64, windo
 	}
 
 	// Check if limit exceeded
-	if count >= limit {
-		// Estimate reset time based on window
-		// Note: This is approximate since we don't have TTL info
-		resetTime := now.Add(window)
-		return false, 0, resetTime, nil
+	if entry.Count >= limit {
+		remaining := int64(0)
+		return false, remaining, entry.ResetTime, nil
 	}
 
-	// Increment count
-	count++
-	if err := s.cache.Set(redisKey, count, window); err != nil {
+	// Increment count - preserve existing TTL by calculating remaining time
+	entry.Count++
+	remainingTTL := time.Until(entry.ResetTime)
+	if remainingTTL <= 0 {
+		// TTL expired, reset the window
+		resetTime := now.Add(window)
+		entry.ResetTime = resetTime
+		remainingTTL = window
+	}
+	// Update value with preserved TTL (remaining time until reset)
+	if err := s.cache.Set(redisKey, entry, remainingTTL); err != nil {
 		return false, 0, time.Time{}, fmt.Errorf("failed to update rate limit key: %w", err)
 	}
 
-	remaining := limit - count
+	remaining := limit - entry.Count
 	if remaining < 0 {
 		remaining = 0
 	}
-	resetTime := now.Add(window)
 
-	return true, remaining, resetTime, nil
+	return true, remaining, entry.ResetTime, nil
 }
 
 // Reset resets the rate limit for a key
