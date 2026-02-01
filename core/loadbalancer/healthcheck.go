@@ -150,7 +150,7 @@ func (hc *healthChecker) checkServer(server *service.Server, client *http.Client
 	// Get health check configuration (server-level or backend-level)
 	healthCheck := hc.backend.BaseConfig.HealthCheck
 	if server.HealthCheck != nil {
-		healthCheck = *server.HealthCheck
+		healthCheck = service.MergeHealthCheck(hc.backend.BaseConfig.HealthCheck, *server.HealthCheck)
 	}
 
 	// Skip if health check is disabled or always OK

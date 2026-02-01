@@ -89,7 +89,7 @@ func (s *Server) GetEffectiveConfig(base *Service) *Service {
 
 	// Merge health check configuration
 	if s.HealthCheck != nil {
-		effective.HealthCheck = mergeHealthCheck(base.HealthCheck, *s.HealthCheck)
+		effective.HealthCheck = MergeHealthCheck(base.HealthCheck, *s.HealthCheck)
 	}
 
 	return &effective
@@ -147,8 +147,8 @@ func mergeResponse(base, override Response) Response {
 	return merged
 }
 
-// mergeHealthCheck merges two HealthCheck configurations
-func mergeHealthCheck(base, override HealthCheck) HealthCheck {
+// MergeHealthCheck merges two HealthCheck configurations
+func MergeHealthCheck(base, override HealthCheck) HealthCheck {
 	merged := base
 
 	if override.Enable {
