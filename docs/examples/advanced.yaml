@@ -12,7 +12,7 @@ cache:
   db: 0
   prefix: "api-gateway:"
 
-# Global rate limit configuration (omit storage — uses Redis from `cache` above)
+# Global rate limit (counters use Redis via top-level `cache` above)
 rate_limit:
   enable: true
   algorithm: token-bucket

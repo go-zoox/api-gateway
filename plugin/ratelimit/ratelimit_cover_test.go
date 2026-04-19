@@ -41,7 +41,7 @@ func TestAttachApplicationCache_NilApp(t *testing.T) {
 	}
 }
 
-func TestRateLimit_NilStorageSkips(t *testing.T) {
+func TestRateLimit_NilLimitStoreSkips(t *testing.T) {
 	p := New()
 	p.globalConfig = route.RateLimit{
 		Enable: true, Limit: 5, Window: 60, KeyType: "ip",

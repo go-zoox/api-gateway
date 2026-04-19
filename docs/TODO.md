@@ -20,7 +20,7 @@ This document lists the missing features and development plan for API Gateway. T
 
 ### 2. Rate Limiting & Throttling
 **Status**: 🟢 Implemented  
-**Description**: Rate limiting plugin is fully implemented with support for multiple algorithms, storage backends, and key types.
+**Description**: Rate limiting plugin is fully implemented with support for multiple algorithms and key types (backed by `Application.Cache()`).
 
 **Requirements**:
 - [x] Rate limiting based on IP, user, API Key

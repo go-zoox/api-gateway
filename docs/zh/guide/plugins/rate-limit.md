@@ -6,7 +6,7 @@
 
 ## 能力概览
 
-- **限流维度**：IP（支持 `X-Forwarded-For`、`X-Real-IP`）、用户（Bearer / `X-User-ID`）、API Key（`X-API-Key`、`Authorization: ApiKey …`、`api_key` 查询参数）、自定义请求头。
+- **限流维度**：IP（支持 `X-Forwarded-For`、`X-Real-IP`）、用户（Bearer / `X-User-ID`）、API Key（`X-API-Key`、`Authorization: ApiKey …`、`api_key` 查询参数）、**客户端 ID**（`X-Client-ID` 或查询参数 `client_id`）、自定义请求头。
 - **算法**：`token-bucket`、`leaky-bucket`、`fixed-window`。
 - **计数器**：仅通过 **`Application.Cache()`** 持久化（顶层配置 `cache` 时一般为 Redis；未配置时为 zoox 默认内存 KV）。
 - **作用域**：全局默认策略 + **路由级**覆盖。
@@ -204,11 +204,11 @@ rate_limit:
 <a id="field-key-type"></a>
 ### `key_type`
 
-- **含义：** 如何从请求构造限流键。取值：`ip`、`user`、`apikey`、`header`；其它字符串按 **`ip`**。
+- **含义：** 如何从请求构造限流键。取值：`ip`、`user`、`apikey`、`clientid`、`header`；其它字符串按 **`ip`**。
 - **默认值：** `ip`。
-- **补充：** `ip` 依次用 `X-Forwarded-For`、`X-Real-IP`、`RemoteAddr`；`user` 用 Bearer 或 `X-User-ID`，否则退回 IP；`apikey` 用 `X-API-Key` / `Authorization: ApiKey …` / 查询参数 `api_key`，否则退回 IP；`header` 配合 `key_header`，头名为空则退回 IP。
-- **用法：** 匿名用 `ip`；鉴权后用 `user`/`apikey`；多租户用 `header`。
-- **示例：** 按 **API Key** 维度限流（优先读 `X-API-Key` 等）：
+- **补充：** `ip` 依次用 `X-Forwarded-For`、`X-Real-IP`、`RemoteAddr`；`user` 用 Bearer 或 `X-User-ID`，否则退回 IP；`apikey` 用 `X-API-Key` / `Authorization: ApiKey …` / 查询参数 `api_key`，否则退回 IP；`clientid` 优先 `X-Client-ID`，否则查询参数 `client_id`，否则退回 IP；`header` 配合 `key_header`，头名为空则退回 IP。
+- **用法：** 匿名用 `ip`；鉴权后用 `user`/`apikey`；稳定客户端标识用 `clientid`；多租户等用 `header`。
+- **示例（API Key）：**
 
 ```yaml
 rate_limit:
@@ -216,6 +216,16 @@ rate_limit:
   key_type: apikey
   limit: 1000
   window: 3600
+```
+
+- **示例（`clientid`）：**
+
+```yaml
+rate_limit:
+  enable: true
+  key_type: clientid
+  limit: 200
+  window: 60
 ```
 
 <a id="field-key-header"></a>
@@ -305,7 +315,7 @@ rate_limit:
 
 ## 与 Application.Cache 的关系
 
-限流计数器只通过 **`app.Cache()`**（内部即 `cache.New(&app.Config.Cache)`）读写，代码里**没有** storage 类型分支。未配置顶层 `cache` 时，zoox 默认仍是内存 KV，行为与框架一致。
+限流计数器只通过 **`app.Cache()`**（内部即 `cache.New(&app.Config.Cache)`）读写。未配置顶层 `cache` 时，zoox 默认仍是内存 KV，行为与框架一致。
 
 ## 响应头
 

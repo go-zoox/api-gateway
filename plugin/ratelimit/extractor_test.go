@@ -149,6 +149,7 @@ func TestExtractorFactory(t *testing.T) {
 		{"IP extractor", "ip", "", "IPExtractor"},
 		{"User extractor", "user", "", "UserExtractor"},
 		{"API Key extractor", "apikey", "", "APIKeyExtractor"},
+		{"Client ID extractor", "clientid", "", "ClientIDExtractor"},
 		{"Header extractor", "header", "X-Custom", "HeaderExtractor"},
 		{"Default to IP", "unknown", "", "IPExtractor"},
 	}
@@ -163,6 +164,46 @@ func TestExtractorFactory(t *testing.T) {
 			_ = extractor
 		})
 	}
+}
+
+func TestClientIDExtractor(t *testing.T) {
+	e := &ClientIDExtractor{}
+	ctx := &zoox.Context{}
+
+	t.Run("X-Client-ID header", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/?client_id=q", nil)
+		req.Header.Set("X-Client-ID", "hdr-wins")
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "clientid:hdr-wins" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+
+	t.Run("query client_id", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/?client_id=my-app", nil)
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "clientid:my-app" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+
+	t.Run("trim spaces", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-Client-ID", "  spaced  ")
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "clientid:spaced" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+
+	t.Run("fallback IP", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "192.0.2.1:1"
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "ip:192.0.2.1" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
 }
 
 func TestExtractorFactory_HeaderWithoutNameUsesIPExtractor(t *testing.T) {

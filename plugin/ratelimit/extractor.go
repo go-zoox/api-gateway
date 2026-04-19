@@ -25,6 +25,8 @@ func (f *ExtractorFactory) NewExtractor(keyType, keyHeader string) KeyExtractor 
 		return &UserExtractor{}
 	case "apikey":
 		return &APIKeyExtractor{}
+	case "clientid":
+		return &ClientIDExtractor{}
 	case "header":
 		if keyHeader == "" {
 			return &IPExtractor{} // fallback to IP if header not specified
@@ -125,6 +127,20 @@ func (e *APIKeyExtractor) Extract(ctx *zoox.Context, req *http.Request) (string,
 	}
 
 	// Fallback to IP if no API key found
+	ipExtractor := &IPExtractor{}
+	return ipExtractor.Extract(ctx, req)
+}
+
+// ClientIDExtractor extracts a client identifier from X-Client-ID or query client_id.
+type ClientIDExtractor struct{}
+
+func (e *ClientIDExtractor) Extract(ctx *zoox.Context, req *http.Request) (string, error) {
+	if id := strings.TrimSpace(req.Header.Get("X-Client-ID")); id != "" {
+		return "clientid:" + id, nil
+	}
+	if id := strings.TrimSpace(req.URL.Query().Get("client_id")); id != "" {
+		return "clientid:" + id, nil
+	}
 	ipExtractor := &IPExtractor{}
 	return ipExtractor.Extract(ctx, req)
 }

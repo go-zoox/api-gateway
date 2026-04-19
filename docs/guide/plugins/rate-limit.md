@@ -6,7 +6,7 @@ The rate limiting plugin is registered when **either** the global `rate_limit.en
 
 ## Features
 
-- **Keys**: IP (with `X-Forwarded-For` / `X-Real-IP` support), user id (Bearer / `X-User-ID`), API key (`X-API-Key`, `Authorization: ApiKey …`, or `api_key` query), or a custom header.
+- **Keys**: IP (with `X-Forwarded-For` / `X-Real-IP` support), user id (Bearer / `X-User-ID`), API key (`X-API-Key`, `Authorization: ApiKey …`, or `api_key` query), **client id** (`X-Client-ID` or `client_id` query), or a custom header.
 - **Algorithms**: `token-bucket`, `leaky-bucket`, `fixed-window`.
 - **Counters**: Stored only via **`zoox.Application.Cache()`** (set top-level `cache` in YAML for Redis; otherwise the framework’s in-memory KV).
 - **Scope**: Global defaults plus **per-route** overrides.
@@ -204,11 +204,11 @@ rate_limit:
 <a id="field-key-type"></a>
 ### `key_type`
 
-- **Meaning:** How the per-client rate-limit **key** is derived. Values: `ip`, `user`, `apikey`, `header`. Any other string is treated like **`ip`**.
+- **Meaning:** How the per-client rate-limit **key** is derived. Values: `ip`, `user`, `apikey`, `clientid`, `header`. Any other string is treated like **`ip`**.
 - **Default:** `ip` when omitted.
-- **Details:** **`ip`** — first `X-Forwarded-For` hop, then `X-Real-IP`, then `RemoteAddr`. **`user`** — `Authorization: Bearer` token value, then `X-User-ID`; else falls back like `ip`. **`apikey`** — `X-API-Key`, then `Authorization: ApiKey …`, then query `api_key`; else IP. **`header`** — uses `key_header`; if empty, falls back like `ip`.
-- **Usage:** Choose `ip` for anonymous traffic; `user` or `apikey` for authenticated quotas; `header` for tenancy or custom routing headers.
-- **Example:** Rate limit **per API key** (header `X-API-Key` wins first):
+- **Details:** **`ip`** — first `X-Forwarded-For` hop, then `X-Real-IP`, then `RemoteAddr`. **`user`** — `Authorization: Bearer` token value, then `X-User-ID`; else falls back like `ip`. **`apikey`** — `X-API-Key`, then `Authorization: ApiKey …`, then query `api_key`; else IP. **`clientid`** — `X-Client-ID` (wins if set), else query `client_id`; else IP. **`header`** — uses `key_header`; if empty, falls back like `ip`.
+- **Usage:** Choose `ip` for anonymous traffic; `user` or `apikey` for authenticated quotas; `clientid` for first-class client ids; `header` for tenancy or other custom dimensions.
+- **Example (API key):** header `X-API-Key` (and fallbacks) as the key:
 
 ```yaml
 rate_limit:
@@ -216,6 +216,16 @@ rate_limit:
   key_type: apikey
   limit: 1000
   window: 3600
+```
+
+- **Example (`clientid`):** `X-Client-ID`, or query `client_id` if the header is absent:
+
+```yaml
+rate_limit:
+  enable: true
+  key_type: clientid
+  limit: 200
+  window: 60
 ```
 
 <a id="field-key-header"></a>
@@ -301,13 +311,13 @@ Longer paths win over shorter prefixes (for example `/api/v1` wins over `/api` f
 | --- | --- |
 | `token-bucket` | Allows bursts up to `burst`; refills against `limit` / `window`. |
 | `leaky-bucket` | Smooth throughput; burst is not used as extra capacity in the same way as token bucket. |
-| `fixed-window` | Simple counting window aligned to storage implementation. |
+| `fixed-window` | Simple counting within a rolling window (backed by `Application.Cache()`). |
 
 ## Cache / KV backend
 
 Counters live in **`zoox.Application.Cache()`** — the same `cache.Cache` instance the framework builds from `Config.Cache` (`cache.New`). Gateway **`prepare()`** writes `Config.Cache` when your YAML sets **`cache`** (e.g. Redis). If you omit **`cache`**, zoox still exposes `Application.Cache()` using its default **in-memory** KV engine (not a separate plugin-owned map).
 
-There is **no `rate_limit.storage`** knob and no storage-type branching in code: counters use **`newCacheStorage(app.Cache())`** only.
+Counters use **`newCacheStorage(app.Cache())`** only (no alternate backend selector in config).
 
 ## Response headers
 
@@ -319,7 +329,7 @@ Successful passes and many responses include:
 
 When returning **429**, the gateway also sets `Retry-After` (seconds) when possible, plus any custom keys from `headers`.
 
-If the algorithm or storage returns an error, the plugin **allows** the request (fail-open) and logs the error.
+If the algorithm or cache layer returns an error, the plugin **allows** the request (fail-open) and logs the error.
 
 ## Related
 

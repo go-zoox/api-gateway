@@ -92,7 +92,7 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 	}
 
 	if r.limitStore == nil {
-		ctx.Logger.Warnf("[plugin:ratelimit] storage not initialized, skip rate limiting")
+		ctx.Logger.Warnf("[plugin:ratelimit] limit store not initialized, skip rate limiting")
 		return nil
 	}
 

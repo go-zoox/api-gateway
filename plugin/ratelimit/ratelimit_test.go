@@ -119,7 +119,6 @@ func TestRateLimit_GlobalConfig(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "ip",
 			Limit:     5,
 			Window:    60,
@@ -159,7 +158,6 @@ func TestRateLimit_RouteConfig(t *testing.T) {
 				RateLimit: route.RateLimit{
 					Enable:    true,
 					Algorithm: "fixed-window",
-					Storage:   "memory",
 					KeyType:   "ip",
 					Limit:     3,
 					Window:    60,
@@ -198,7 +196,6 @@ func TestRateLimit_KeyExtraction(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "apikey",
 			Limit:     2,
 			Window:    60,
@@ -239,7 +236,6 @@ func TestRateLimit_OnResponse(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "ip",
 			Limit:     5,
 			Window:    60,
@@ -287,7 +283,6 @@ func TestRateLimit_InvalidConfig(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "ip",
 			Limit:     0, // Invalid: limit is 0
 			Window:    60,
@@ -337,7 +332,6 @@ func TestRateLimit_PathBoundaryMatching(t *testing.T) {
 						RateLimit: route.RateLimit{
 							Enable:    true,
 							Algorithm: "fixed-window",
-							Storage:   "memory",
 							KeyType:   "ip",
 							Limit:     5,
 							Window:    60,
@@ -388,7 +382,6 @@ func TestRateLimit_InvalidWindow(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "ip",
 			Limit:     10,
 			Window:    0,
@@ -413,7 +406,6 @@ func TestRateLimit_RouteOverridesGlobal(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "ip",
 			Limit:     100,
 			Window:    60,
@@ -424,7 +416,6 @@ func TestRateLimit_RouteOverridesGlobal(t *testing.T) {
 				RateLimit: route.RateLimit{
 					Enable:    true,
 					Algorithm: "fixed-window",
-					Storage:   "memory",
 					KeyType:   "ip",
 					Limit:     2,
 					Window:    60,
@@ -467,7 +458,6 @@ func TestRateLimit_LongestRoutePrefixWins(t *testing.T) {
 				RateLimit: route.RateLimit{
 					Enable:    true,
 					Algorithm: "fixed-window",
-					Storage:   "memory",
 					KeyType:   "ip",
 					Limit:     50,
 					Window:    60,
@@ -478,7 +468,6 @@ func TestRateLimit_LongestRoutePrefixWins(t *testing.T) {
 				RateLimit: route.RateLimit{
 					Enable:    true,
 					Algorithm: "fixed-window",
-					Storage:   "memory",
 					KeyType:   "ip",
 					Limit:     2,
 					Window:    60,
@@ -520,7 +509,6 @@ func TestRateLimit_ExceededCustomMessageAndHeaders(t *testing.T) {
 		RateLimit: route.RateLimit{
 			Enable:    true,
 			Algorithm: "fixed-window",
-			Storage:   "memory",
 			KeyType:   "ip",
 			Limit:     1,
 			Window:    60,
