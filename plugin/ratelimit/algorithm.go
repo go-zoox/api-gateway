@@ -22,13 +22,13 @@ type AlgorithmFactory struct{}
 // NewAlgorithm creates an algorithm instance based on algorithm type
 func (f *AlgorithmFactory) NewAlgorithm(algorithmType string) Algorithm {
 	switch algorithmType {
-	case "token-bucket":
+	case "token-bucket", "":
 		return &TokenBucketAlgorithm{}
 	case "leaky-bucket":
 		return &LeakyBucketAlgorithm{}
-	case "fixed-window", "":
+	case "fixed-window":
 		return &FixedWindowAlgorithm{}
 	default:
-		return &FixedWindowAlgorithm{} // default to fixed window
+		return &TokenBucketAlgorithm{} // default to token-bucket
 	}
 }
