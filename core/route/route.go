@@ -1,6 +1,8 @@
 package route
 
 import (
+	"strings"
+
 	"github.com/go-zoox/api-gateway/core/service"
 )
 
@@ -22,9 +24,36 @@ type RateLimit struct {
 	Headers   map[string]string `config:"headers"` // custom response headers
 }
 
+// JSONAuditOutputFile configures the file sink when output.provider is file.
+type JSONAuditOutputFile struct {
+	// Path is the filesystem path; each audit record is one appended line (NDJSON).
+	Path string `config:"path"`
+}
+
+// JSONAuditHTTPOutput configures the HTTP sink when output.provider is http.
+type JSONAuditHTTPOutput struct {
+	URL string `config:"url"`
+	// Method defaults to POST if empty.
+	Method string `config:"method,default=POST"`
+	// Headers are optional extra request headers (e.g. Authorization).
+	Headers map[string]string `config:"headers"`
+	// TimeoutSeconds caps the outbound request (default 5; must be >0).
+	TimeoutSeconds int64 `config:"timeout_seconds,default=5"`
+}
+
+// JSONAuditOutput groups sink selection (provider) and provider-specific settings under json_audit.output.
+type JSONAuditOutput struct {
+	// Provider is console (default), file, or http (also accepts webhook, endpoint, api as aliases for http).
+	Provider string `config:"provider,default=console"`
+	File     JSONAuditOutputFile `config:"file"`
+	HTTP     JSONAuditHTTPOutput `config:"http"`
+}
+
 // JSONAudit configures JSON response audit logging for the gateway or a single route.
 type JSONAudit struct {
 	Enable bool `config:"enable"`
+	// Output configures where each audit line is written (see provider, file, http).
+	Output JSONAuditOutput `config:"output"`
 	// MaxBodyBytes caps captured request/response bodies (default 1MiB).
 	MaxBodyBytes int64 `config:"max_body_bytes,default=1048576"`
 	// SampleRate is the fraction of requests to audit (0.0–1.0]. Values <=0 are treated as 1.0.
@@ -49,4 +78,18 @@ type Route struct {
 	PathType   string    `config:"path_type,default=prefix"`
 	RateLimit  RateLimit `config:"rate_limit"`
 	JSONAudit  JSONAudit `config:"json_audit"`
+}
+
+// EffectiveJSONAuditProvider returns the normalized sink id: console, file, or http.
+func EffectiveJSONAuditProvider(o JSONAuditOutput) string {
+	switch strings.ToLower(strings.TrimSpace(o.Provider)) {
+	case "", "console", "stdout":
+		return "console"
+	case "file":
+		return "file"
+	case "http", "https", "webhook", "endpoint", "api":
+		return "http"
+	default:
+		return "console"
+	}
 }

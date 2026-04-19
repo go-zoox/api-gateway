@@ -9,9 +9,238 @@
 | 阶段 | 行为 |
 | --- | --- |
 | **`OnRequest`** | 路径与抽样通过后，读取请求体至多 **`max_body_bytes`**，并还原 **`Body`** 以便继续转发；把元数据与 body 保存在 **`ctx.Request.Context()`**。 |
-| **`OnResponse`** | 读取上游响应体（同样上限）并还原 **`Body`**；若判定响应为 JSON 类，则序列化审计记录并通过 **`ctx.Logger.Infof`** 输出。 |
+| **`OnResponse`** | 读取上游响应体（同样上限）并还原 **`Body`**；若判定响应为 JSON 类，则序列化 **一行 JSON 审计记录**，并按 **`json_audit.output`**（**`output.provider`**，默认 **console** → 应用日志 **info**）写入对应渠道。 |
 
 **注意：** 仅在**上游响应被判定为 JSON 类**时才会写审计日志；非此类响应**不会**为该请求生成审计条目。
+
+## 配置说明（`json_audit`）
+
+**`json_audit`** 对应 **`config.JSONAudit`** / **`route.JSONAudit`**（见 [配置 API](/zh/api/config)）。根配置块作默认值，可在 **`routes[].json_audit`** 覆盖；插件对每个请求按 **最长前缀匹配** 路由后回退到全局 **`enable`** 为真时的全局块 —— 单一结构体类型，插件包内不再重复定义。
+
+YAML 使用 **snake_case**。
+
+### 字段一览
+
+<div style="overflow-x:auto">
+<table style="table-layout:fixed;width:100%;max-width:52rem;border-collapse:collapse">
+<colgroup>
+<col style="width:8rem" />
+<col style="width:5rem" />
+<col style="width:7rem" />
+<col style="width:20rem" />
+</colgroup>
+<thead>
+<tr>
+<th align="left">字段</th>
+<th align="left">是否必须</th>
+<th align="left">默认值</th>
+<th align="left">简要说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td valign="top"><code>enable</code></td>
+<td valign="top">是*</td>
+<td valign="top"><code>false</code></td>
+<td valign="top">置为 <code>true</code> 才会加载插件。</td>
+</tr>
+<tr>
+<td valign="top"><code>output</code></td>
+<td valign="top">否</td>
+<td valign="top"><code>provider: console</code></td>
+<td valign="top">嵌套块：<strong><code>provider</code></strong> — <code>console</code>（默认）、<code>file</code>、<code>http</code>（<code>webhook</code> / <code>endpoint</code> / <code>api</code> 视为 http）。<code>provider: file</code> 时配置 <strong><code>file.path</code></strong>；<code>provider: http</code> 时配置 <strong><code>http</code></strong>（<code>url</code> 必填；可选 <code>method</code>、<code>headers</code>、<code>timeout_seconds</code>）。HTTP 失败时退回 **info** 写控制台。</td>
+</tr>
+<tr>
+<td valign="top"><code>max_body_bytes</code></td>
+<td valign="top">否</td>
+<td valign="top"><code>1048576</code></td>
+<td valign="top">请求/响应体采集的最大字节数。</td>
+</tr>
+<tr>
+<td valign="top"><code>sample_rate</code></td>
+<td valign="top">否</td>
+<td valign="top"><code>1</code></td>
+<td valign="top">路径过滤后的抽样比例；≤0 等价于全量。</td>
+</tr>
+<tr>
+<td valign="top"><code>sniff_json</code></td>
+<td valign="top">否</td>
+<td valign="top"><code>true</code></td>
+<td valign="top">无 JSON 的 Content-Type 时是否用 <code>json.Valid</code> 嗅探。</td>
+</tr>
+<tr>
+<td valign="top"><code>decompress_gzip</code></td>
+<td valign="top">否</td>
+<td valign="top"><code>true</code></td>
+<td valign="top"><code>Content-Encoding</code> 含 gzip 时是否尝试解压。</td>
+</tr>
+<tr>
+<td valign="top"><code>include_paths</code></td>
+<td valign="top">否</td>
+<td valign="top"><em>空</em></td>
+<td valign="top">前缀白名单；空表示在排除前不过滤路径。</td>
+</tr>
+<tr>
+<td valign="top"><code>exclude_paths</code></td>
+<td valign="top">否</td>
+<td valign="top"><em>空</em></td>
+<td valign="top">前缀黑名单，在 include 之后评估。</td>
+</tr>
+<tr>
+<td valign="top"><code>redact_keys</code></td>
+<td valign="top">否</td>
+<td valign="top"><em>内置列表</em></td>
+<td valign="top">JSON 对象键（任意深度）命中则掩码。</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+\*顶层 **`json_audit.enable`** 为真，或**任一路由**启用 **`json_audit`** 时注册插件。
+
+### 字段详解
+
+以下示例默认写在**根配置**的 **`json_audit:`** 下；若写在 **`routes[].json_audit`**，则表示按**最长前缀**匹配到该路由时生效、可覆盖全局。字段名均为 **snake_case**。
+
+#### `enable`
+
+**`true`** 时参与启用插件：**顶层** **`json_audit.enable`** 或**任一路由** **`json_audit.enable`** 为真时都会注册插件（与限流一致）。在某一 **`routes`** 条目中设置 **`enable: true`**，表示该路由前缀下可使用该块里的审计配置；每个请求实际生效的配置按**最长前缀匹配**路由，再回退到根配置。
+
+```yaml
+json_audit:
+  enable: true
+```
+
+#### `output`（嵌套）
+
+由 **`output.provider`** 决定**每条审计记录**（单行 JSON）写到哪里：
+
+| `provider` | 行为 |
+| --- | --- |
+| **`console`**（默认） | 走应用 **`info`** 日志（与其它网关日志同一套管线）。 |
+| **`file`** | 追加写入 **`output.file.path`**，每条记录后换行（NDJSON）。 |
+| **`http`** | 向 **`output.http.url`** 发起请求（默认 **`POST`**），请求体为审计 JSON，**`Content-Type: application/json`**。 |
+
+**`webhook`**、**`endpoint`**、**`api`** 写在 **`provider`** 上时与 **`http`** 等价。若 **`provider`** 为 **`file`** / **`http`**，必须配置 **`file.path`** / **`http.url`**（启用块在启动时校验）。HTTP 投递失败或非 2xx 时，同一条记录会**额外**以 **info** 打到控制台，避免静默丢审计。
+
+默认（控制台）——可省略 **`output`** 或只写 **`provider`**：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: console
+```
+
+本地文件：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: file
+    file:
+      path: /var/log/api-gateway/json-audit.ndjson
+```
+
+HTTP 采集：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: http
+    http:
+      url: https://logs.example.com/ingest/json-audit
+      method: POST
+      headers:
+        Authorization: Bearer your-ingest-token
+      timeout_seconds: 8
+```
+
+仅某一路由写入单独文件（示例：账单前缀）：
+
+```yaml
+routes:
+  - path: /billing
+    json_audit:
+      enable: true
+      output:
+        provider: file
+        file:
+          path: /var/log/api-gateway/billing-audit.ndjson
+    backend:
+      service:
+        name: billing
+```
+
+#### `max_body_bytes`
+
+限制从**客户端请求体**与**上游响应体**为审计最多读取的字节数；超出部分截断，审计 JSON 里的 **`request_truncated`** / **`response_truncated`** 会标 **`true`**。内存敏感环境可调小；默认 **1 MiB**。
+
+```yaml
+json_audit:
+  enable: true
+  max_body_bytes: 262144   # 256 KiB
+```
+
+#### `sample_rate`
+
+在 **include/exclude** 路径规则通过后，对剩余请求按 **`sample_rate`** 做随机抽样，取值 **`(0,1]`**；**`1`** 表示尽量全量；**`≤0`** 在插件内部会按「全量参与抽样」处理（详见下文 [抽样](#抽样)）。**`0.1`** 约等于 **10%** 请求。
+
+```yaml
+json_audit:
+  enable: true
+  sample_rate: 0.1
+```
+
+#### `sniff_json`
+
+**`true`**（默认）时，即使 **`Content-Type`** 不像 JSON，只要去掉空白后的 body 满足 **`json.Valid`**，仍可能判为「JSON 类」并写审计。若只希望 **Content-Type 声明为 JSON** 时才审计，设为 **`false`**。
+
+```yaml
+json_audit:
+  enable: true
+  sniff_json: false
+```
+
+#### `decompress_gzip`
+
+**`true`**（默认）且响应 **`Content-Encoding`** 含 **gzip** 时，会在 **`max_body_bytes`** 内解压后再做 JSON 判定与 **`response.body`** 记录。若上游从不 gzip JSON，可设为 **`false`** 省 CPU。
+
+```yaml
+json_audit:
+  enable: true
+  decompress_gzip: false
+```
+
+#### `include_paths` 与 `exclude_paths`
+
+均按网关 **`ctx.Path`** 做**前缀匹配**。**`include_paths` 非空**时，路径须以其中**至少一条**前缀开头；**`exclude_paths`** 在 include 之后判断，命中则**跳过**审计。常用 **`exclude_paths`** 排除 **`/health`**、监控、静态资源或大体积接口。
+
+```yaml
+json_audit:
+  enable: true
+  include_paths:
+    - /api/
+  exclude_paths:
+    - /health
+    - /metrics
+    - /static/
+```
+
+#### `redact_keys`
+
+JSON 对象键名**不区分大小写**、**任意层级**，命中则值替换为 **`"[REDACTED]"`**；query 参数名同理。HTTP 头的脱敏规则由插件内置。**留空**时使用内置敏感键列表（含 **`password`**、**`token`** 等）。
+
+```yaml
+json_audit:
+  enable: true
+  redact_keys:
+    - password
+    - national_id
+    - bank_account
+```
 
 ## 何谓「响应为 JSON 类」？
 
@@ -57,7 +286,7 @@
 
 ## 日志字段说明
 
-每条审计日志为 **一行 JSON**，由 **`ctx.Logger.Infof`** 输出（**info**）。
+每条审计日志为 **一行 JSON**。在 **`output.provider: console`**（默认）下通过 **`ctx.Logger.Infof`**（**info**）输出；**`file`** / **`http`** 见上文 **配置说明（`json_audit`）**。
 
 **顶层字段**
 
@@ -93,7 +322,7 @@
 | **`status`** | 上游 HTTP 状态码。 |
 | **`body`** | 响应体：解析后的 JSON（键脱敏），或字符串。 |
 
-请结合现有日志采集与合规策略使用；涉密环境勿依赖默认脱敏作为唯一防护。
+使用 **`output.provider: console`** 时可接入现有日志采集；**`output.file.path`** 可落地为 **NDJSON** 再由采集器读取。涉密环境勿依赖默认脱敏作为唯一防护。
 
 ## 示例：配置与日志
 
@@ -199,112 +428,6 @@ json_audit:
 若请求或响应体超过 **`max_body_bytes`**，会被截断，**`request_truncated`** / **`response_truncated`** 为 **`true`**。
 
 当响应仍被视为 JSON 类但正文无法按 JSON 解析时，**`request.body`** / **`response.body`** 可能为**字符串**而非对象。
-
-## 更多配置片段
-
-最小启用：
-
-```yaml
-json_audit:
-  enable: true
-```
-
-路径 + 抽样 + 脱敏（与上文「生产常用」一致）：
-
-```yaml
-json_audit:
-  enable: true
-  max_body_bytes: 524288
-  sample_rate: 0.25
-  sniff_json: true
-  decompress_gzip: true
-  include_paths:
-    - /api/v1/
-  exclude_paths:
-    - /health
-    - /metrics
-  redact_keys:
-    - password
-    - secret
-    - national_id
-```
-
-### 字段说明（`json_audit`）
-
-**`json_audit`** 对应 **`config.JSONAudit`** / **`route.JSONAudit`**（见 [配置 API](/zh/api/config)）。根配置块作默认值，可在 **`routes[].json_audit`** 覆盖；插件对每个请求按 **最长前缀匹配** 路由后回退到全局 **`enable`** 为真时的全局块 —— 单一结构体类型，插件包内不再重复定义。
-
-YAML 使用 **snake_case**。
-
-<div style="overflow-x:auto">
-<table style="table-layout:fixed;width:100%;max-width:52rem;border-collapse:collapse">
-<colgroup>
-<col style="width:8rem" />
-<col style="width:5rem" />
-<col style="width:7rem" />
-<col style="width:20rem" />
-</colgroup>
-<thead>
-<tr>
-<th align="left">字段</th>
-<th align="left">是否必须</th>
-<th align="left">默认值</th>
-<th align="left">简要说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td valign="top"><code>enable</code></td>
-<td valign="top">是*</td>
-<td valign="top"><code>false</code></td>
-<td valign="top">置为 <code>true</code> 才会加载插件。</td>
-</tr>
-<tr>
-<td valign="top"><code>max_body_bytes</code></td>
-<td valign="top">否</td>
-<td valign="top"><code>1048576</code></td>
-<td valign="top">请求/响应体采集的最大字节数。</td>
-</tr>
-<tr>
-<td valign="top"><code>sample_rate</code></td>
-<td valign="top">否</td>
-<td valign="top"><code>1</code></td>
-<td valign="top">路径过滤后的抽样比例；≤0 等价于全量。</td>
-</tr>
-<tr>
-<td valign="top"><code>sniff_json</code></td>
-<td valign="top">否</td>
-<td valign="top"><code>true</code></td>
-<td valign="top">无 JSON 的 Content-Type 时是否用 <code>json.Valid</code> 嗅探。</td>
-</tr>
-<tr>
-<td valign="top"><code>decompress_gzip</code></td>
-<td valign="top">否</td>
-<td valign="top"><code>true</code></td>
-<td valign="top"><code>Content-Encoding</code> 含 gzip 时是否尝试解压。</td>
-</tr>
-<tr>
-<td valign="top"><code>include_paths</code></td>
-<td valign="top">否</td>
-<td valign="top"><em>空</em></td>
-<td valign="top">前缀白名单；空表示在排除前不过滤路径。</td>
-</tr>
-<tr>
-<td valign="top"><code>exclude_paths</code></td>
-<td valign="top">否</td>
-<td valign="top"><em>空</em></td>
-<td valign="top">前缀黑名单，在 include 之后评估。</td>
-</tr>
-<tr>
-<td valign="top"><code>redact_keys</code></td>
-<td valign="top">否</td>
-<td valign="top"><em>内置列表</em></td>
-<td valign="top">JSON 对象键（任意深度）命中则掩码。</td>
-</tr>
-</tbody>
-</table>
-</div>
-
-\*仅当 **`enable: true`** 时注册插件。
 
 ## 限制与注意
 

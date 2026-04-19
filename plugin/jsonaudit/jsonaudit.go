@@ -5,12 +5,15 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-zoox/api-gateway/config"
@@ -55,12 +58,17 @@ type JSONAudit struct {
 
 	globalConfig route.JSONAudit
 	routeConfigs map[string]*route.JSONAudit
+
+	fileMu      sync.Mutex
+	fileHandles map[string]*os.File
+	httpClient  *http.Client
 }
 
 // New builds a JSON audit plugin (call Prepare after construction via core).
 func New() *JSONAudit {
 	return &JSONAudit{
 		routeConfigs: make(map[string]*route.JSONAudit),
+		httpClient:   &http.Client{},
 	}
 }
 
@@ -72,6 +80,22 @@ func (j *JSONAudit) Prepare(app *zoox.Application, cfg *config.Config) error {
 		if rt.JSONAudit.Enable {
 			copyCfg := rt.JSONAudit
 			j.routeConfigs[rt.Path] = &copyCfg
+		}
+	}
+
+	if j.globalConfig.Enable {
+		warnUnknownJSONAuditOutput(app, j.globalConfig.Output.Provider)
+		if err := validateJSONAuditSink("global", &j.globalConfig); err != nil {
+			return err
+		}
+	}
+	for i, rt := range cfg.Routes {
+		if rt.JSONAudit.Enable {
+			warnUnknownJSONAuditOutput(app, rt.JSONAudit.Output.Provider)
+			tag := fmt.Sprintf("routes[%d] path=%s", i, rt.Path)
+			if err := validateJSONAuditSink(tag, &rt.JSONAudit); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -258,7 +282,7 @@ func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 		return nil
 	}
 
-	ctx.Logger.Infof("%s", string(line))
+	j.emitAuditLine(ctx, acfg, line)
 	return nil
 }
 
