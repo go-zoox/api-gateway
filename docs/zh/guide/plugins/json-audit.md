@@ -87,16 +87,18 @@ YAML 使用 **snake_case**。
 <td valign="top">前缀黑名单，在 include 之后评估。</td>
 </tr>
 <tr>
-<td valign="top"><code>redact_keys</code></td>
+<td valign="top"><code>redact</code></td>
 <td valign="top">否</td>
-<td valign="top"><em>内置列表</em></td>
-<td valign="top">JSON 对象键（任意深度）命中则掩码。</td>
+<td valign="top"><code>enable</code> 默认开*</td>
+<td valign="top">嵌套块：<strong><code>enable</code></strong> 控制是否脱敏（不写则<strong>开启</strong>）；<strong><code>keys</code></strong> 为 JSON/query 键名列表，空则用内置列表。<code>enable: false</code> 时头、query、JSON 正文均<strong>不脱敏</strong>（含 <code>Authorization</code> 明文）。</td>
 </tr>
 </tbody>
 </table>
 </div>
 
 \*顶层 **`json_audit.enable`** 为真，或**任一路由**启用 **`json_audit`** 时注册插件。
+
+\*\***`redact.enable`** 省略时视为 **开启**脱敏（与显式 **`true`** 相同）。
 
 ### 字段详解
 
@@ -229,17 +231,29 @@ json_audit:
     - /static/
 ```
 
-#### `redact_keys`
+#### `redact`（嵌套）
 
-JSON 对象键名**不区分大小写**、**任意层级**，命中则值替换为 **`"[REDACTED]"`**；query 参数名同理。HTTP 头的脱敏规则由插件内置。**留空**时使用内置敏感键列表（含 **`password`**、**`token`** 等）。
+**`redact.enable`** 控制是否脱敏；**省略**表示**开启**（默认）。设为 **`false`** 时，审计记录中的敏感 **HTTP 头**、**query**、**JSON 字段**均以**明文**写出——仅限受控环境。
+
+**`redact.keys`**：键名**不区分大小写**，JSON 任意层级与 query 参数名命中则值替换为 **`"[REDACTED]"`**。脱敏**开启**且 **`keys`** 为空时，使用内置敏感键列表（含 **`password`**、**`token`** 等）；敏感头（如 **`Authorization`**）仍按内置规则掩码。
 
 ```yaml
 json_audit:
   enable: true
-  redact_keys:
-    - password
-    - national_id
-    - bank_account
+  redact:
+    keys:
+      - password
+      - national_id
+      - bank_account
+```
+
+关闭脱敏：
+
+```yaml
+json_audit:
+  enable: true
+  redact:
+    enable: false
 ```
 
 ## 何谓「响应为 JSON 类」？
@@ -276,13 +290,13 @@ json_audit:
 
 ## 脱敏
 
-若 body 可被解析为 JSON，则对对象键名做匹配（**不区分大小写**，**任意层级**），命中则将值替换为 **`"[REDACTED]"`**。
+当 **`json_audit.redact.enable`** 不为 **`false`**（默认开启）时，若 body 可被解析为 JSON，则对对象键名做匹配（**不区分大小写**，**任意层级**），命中则将值替换为 **`"[REDACTED]"`**。
 
-**`redact_keys` 为空**时使用内置默认值，包含：
+**`redact.keys` 为空**时使用内置默认值，包含：
 
 `password`、`passwd`、`secret`、`token`、`authorization`、`api_key`、`apikey`、`access_token`、`refresh_token`。
 
-若正文无法解析为 JSON，仍写入 **`request.body`** / **`response.body`**，一般为**字符串**片段；敏感 **HTTP 头**（如 **`Authorization`**、**`Cookie`**）及与 **`redact_keys`** 同名的 **query** 参数会被掩码。
+敏感 **HTTP 头**（如 **`Authorization`**、**`Cookie`**）在脱敏开启时由插件内置规则掩码；**query** 参数名命中 **`redact.keys`**（或内置列表）时掩码。若正文无法解析为 JSON，仍写入 **`request.body`** / **`response.body`**，一般为**字符串**片段。**`redact.enable: false`** 时 JSON 解析结果与请求头可保持明文。
 
 ## 日志字段说明
 
@@ -310,17 +324,17 @@ json_audit:
 | 字段 | 含义 |
 | --- | --- |
 | **`method`**、**`path`** | HTTP 方法与路由路径（`ctx.Path`）。 |
-| **`headers`** | 请求头，`map[string][]string`；内置敏感头（如 **`Authorization`**）值为 **`["[REDACTED]"]`**。 |
-| **`query`** | URL 查询参数，`map[string][]string`；键名命中 **`redact_keys`** 时掩码。 |
+| **`headers`** | 请求头，`map[string][]string`；脱敏开启时内置敏感头为 **`["[REDACTED]"]`**；**`redact.enable: false`** 时为原始值。 |
+| **`query`** | URL 查询参数，`map[string][]string`；键名命中 **`redact.keys`**（或内置）且脱敏开启时掩码。 |
 | **`params`** | 路由参数 **`ctx.Params().ToMap()`**，无则为空对象 **`{}`**。 |
-| **`body`** | 请求体：可为解析后的 JSON（键脱敏），或解析失败时的字符串。 |
+| **`body`** | 请求体：脱敏开启时为键脱敏后的 JSON 或字符串；关闭时为未脱敏解析结果或字符串。 |
 
 **`response` 对象**
 
 | 字段 | 含义 |
 | --- | --- |
 | **`status`** | 上游 HTTP 状态码。 |
-| **`body`** | 响应体：解析后的 JSON（键脱敏），或字符串。 |
+| **`body`** | 响应体：脱敏开启时为键脱敏后的 JSON 或字符串；关闭时为未脱敏解析结果或字符串。 |
 
 使用 **`output.provider: console`** 时可接入现有日志采集；**`output.file.path`** 可落地为 **NDJSON** 再由采集器读取。涉密环境勿依赖默认脱敏作为唯一防护。
 
@@ -361,10 +375,11 @@ json_audit:
   exclude_paths:
     - /health
     - /metrics
-  redact_keys:
-    - password
-    - secret
-    - national_id
+  redact:
+    keys:
+      - password
+      - secret
+      - national_id
 
 # … routes、backend、cache 等与 json_audit 无直接耦合 …
 ```

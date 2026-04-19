@@ -57,8 +57,10 @@ func TestPrepare_CustomRedactKeys(t *testing.T) {
 	app := defaults.Default()
 	cfg := &config.Config{
 		JSONAudit: config.JSONAudit{
-			Enable:     true,
-			RedactKeys: []string{"  CUSTOM  "},
+			Enable: true,
+			Redact: route.JSONAuditRedact{
+				Keys: []string{"  CUSTOM  "},
+			},
 		},
 	}
 	if err := j.Prepare(app, cfg); err != nil {
@@ -188,6 +190,32 @@ func TestOnRequest_ReadBodyError(t *testing.T) {
 	err := j.OnRequest(ctx, req)
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestOnRequest_RedactDisabledPlainHeaders(t *testing.T) {
+	j := New()
+	off := false
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable:     true,
+			SampleRate: 1,
+			Redact: route.JSONAuditRedact{
+				Enable: &off,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	ctx := testZCtx(req)
+	if err := j.OnRequest(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := ctx.Request.Context().Value(auditStateKey).(*auditState)
+	if st == nil || st.headers["Authorization"][0] != "Bearer secret-token" {
+		t.Fatalf("headers: %#v", st.headers["Authorization"])
 	}
 }
 
@@ -458,7 +486,7 @@ func TestRequestBodyForLog_RawFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := buildRedactKeySet(&j.globalConfig)
-	v := j.requestBodyForLog([]byte(`<<<not-json>>>`), keys)
+	v := j.requestBodyForLog([]byte(`<<<not-json>>>`), keys, true)
 	if s, ok := v.(string); !ok || s != `<<<not-json>>>` {
 		t.Fatalf("%#v", v)
 	}

@@ -87,16 +87,18 @@ YAML keys use **snake_case**.
 <td valign="top">Prefix deny list evaluated after includes.</td>
 </tr>
 <tr>
-<td valign="top"><code>redact_keys</code></td>
+<td valign="top"><code>redact</code></td>
 <td valign="top">No</td>
-<td valign="top"><em>(built-ins)</em></td>
-<td valign="top">JSON object keys (any depth) replaced with <code>[REDACTED]</code>.</td>
+<td valign="top"><code>enable</code> on*</td>
+<td valign="top">Nested block: <strong><code>enable</code></strong> — redaction on/off (omit = <strong>on</strong>). <strong><code>keys</code></strong> — JSON/query keys to mask; empty uses built-ins when enabled. When <code>enable: false</code>, headers, query, and JSON bodies are logged <strong>without</strong> masking (including <code>Authorization</code>).</td>
 </tr>
 </tbody>
 </table>
 </div>
 
 \*The plugin registers when global **`json_audit.enable`** is true or any route enables **`json_audit`**.
+
+\*\*For **`redact.enable`**, omitting the field means redaction stays **on** (same as **`true`**).
 
 ### Detailed field notes
 
@@ -229,17 +231,29 @@ json_audit:
     - /static/
 ```
 
-#### `redact_keys`
+#### `redact` (nested)
 
-Case-insensitive JSON object keys (any depth) replaced with **`"[REDACTED]"`** in logged request/response bodies and in **query** parameters. Header redaction uses a fixed sensitive set. When **empty**, built-in keys apply (`password`, `token`, …).
+**`redact.enable`** turns masking on or off. **Omitted** means **on** (default). When **`false`**, audit records include **plaintext** values for sensitive **headers** (e.g. **`Authorization`**), **query** parameters, and **JSON** fields — use only in locked-down environments.
+
+**`redact.keys`** lists **case-insensitive** JSON object keys and query parameter names to replace with **`"[REDACTED]"`**. When redaction is **on** and **`keys`** is **empty**, built-in defaults apply (`password`, `token`, …).
 
 ```yaml
 json_audit:
   enable: true
-  redact_keys:
-    - password
-    - national_id
-    - bank_account
+  redact:
+    keys:
+      - password
+      - national_id
+      - bank_account
+```
+
+Disable masking entirely:
+
+```yaml
+json_audit:
+  enable: true
+  redact:
+    enable: false
 ```
 
 ## When is a response JSON-like?
@@ -276,13 +290,13 @@ Skipped requests carry no audit payload for that hop.
 
 ## Redaction
 
-Bodies are parsed as JSON when possible; object keys matched (case-insensitive, any nesting depth) are replaced by **`"[REDACTED]"`** in the logged structures.
-
-If **`redact_keys`** is **empty**, the plugin uses built-in defaults, including:
+When **`json_audit.redact.enable`** is **not `false`** (the default), bodies are parsed as JSON when possible; object keys matched (case-insensitive, any nesting depth) are replaced by **`"[REDACTED]"`** in the logged structures. If **`redact.keys`** is **empty**, the plugin uses built-in defaults, including:
 
 `password`, `passwd`, `secret`, `token`, `authorization`, `api_key`, `apikey`, `access_token`, `refresh_token`.
 
-Non-JSON bodies are still logged under **`request.body`** / **`response.body`**: valid JSON becomes a parsed tree (after key redaction); otherwise a **string** fragment is stored. Sensitive **HTTP headers** (`Authorization`, `Cookie`, …) and **query** keys that match **`redact_keys`** are masked.
+Sensitive **HTTP headers** (`Authorization`, `Cookie`, …) are replaced with **`["[REDACTED]"]`** when redaction is on. **Query** parameter names matching **`redact.keys`** (or built-ins) are masked.
+
+Non-JSON bodies are still logged under **`request.body`** / **`response.body`**: valid JSON becomes a parsed tree after key redaction when enabled; otherwise a **string** fragment is stored. With **`redact.enable: false`**, parsed JSON and headers are logged **without** masking.
 
 ## Audit log schema
 
@@ -310,17 +324,17 @@ Each audit line is one JSON object. With **`output.provider: console`** (default
 | Field | Meaning |
 | --- | --- |
 | **`method`**, **`path`** | HTTP method and routed path (`ctx.Path`). |
-| **`headers`** | Request headers as **`map[string][]string`**; known sensitive headers replaced with **`["[REDACTED]"]`**. |
-| **`query`** | URL query (`map[string][]string`); parameter names matching **`redact_keys`** are redacted. |
+| **`headers`** | Request headers as **`map[string][]string`**; when redaction is on, known sensitive headers become **`["[REDACTED]"]`**; with **`redact.enable: false`**, values are copied verbatim. |
+| **`query`** | URL query (`map[string][]string`); parameter names matching **`redact.keys`** (or built-ins) are redacted when masking is on. |
 | **`params`** | Route parameters from **`ctx.Params().ToMap()`** (`map[string]any`), empty object if none. |
-| **`body`** | Request body: parsed JSON (after redaction) when valid, else a raw string. |
+| **`body`** | Request body: parsed JSON after key redaction when valid (if masking on), else raw string; with masking off, parsed JSON is unchanged. |
 
 **`response` object**
 
 | Field | Meaning |
 | --- | --- |
 | **`status`** | HTTP status code from upstream. |
-| **`body`** | Response body: parsed JSON after redaction when valid, else a raw string. |
+| **`body`** | Response body: parsed JSON after redaction when valid (if masking on), else a raw string. |
 
 Collect logs with your existing pipeline (stdout, shipper, SIEM) when using **`output.provider: console`**, or ingest **NDJSON** from **`output.file.path`**. Avoid logging truly secret environments in plaintext.
 
@@ -361,10 +375,11 @@ json_audit:
   exclude_paths:
     - /health
     - /metrics
-  redact_keys:
-    - password
-    - secret
-    - national_id
+  redact:
+    keys:
+      - password
+      - secret
+      - national_id
 
 # … routes / backend / cache etc. — unchanged by json_audit …
 ```

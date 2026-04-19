@@ -66,8 +66,25 @@ type JSONAudit struct {
 	IncludePaths []string `config:"include_paths"`
 	// ExcludePaths skips paths with any of these prefixes.
 	ExcludePaths []string `config:"exclude_paths"`
-	// RedactKeys lists JSON object keys (any depth) to mask; empty uses built-in sensitive keys.
-	RedactKeys []string `config:"redact_keys"`
+	// Redact controls masking of sensitive headers, query keys, and JSON object keys in audit logs.
+	Redact JSONAuditRedact `config:"redact"`
+}
+
+// JSONAuditRedact configures whether and how values are masked in audit records.
+type JSONAuditRedact struct {
+	// Enable turns redaction on or off. Omitted (nil) means on (default).
+	Enable *bool `config:"enable"`
+	// Keys lists JSON object keys and query parameter names to mask (case-insensitive).
+	// Empty uses built-in defaults when redaction is enabled.
+	Keys []string `config:"keys"`
+}
+
+// RedactEnabled reports whether masking is active. When Enable is omitted, defaults to true.
+func (r JSONAuditRedact) RedactEnabled() bool {
+	if r.Enable == nil {
+		return true
+	}
+	return *r.Enable
 }
 
 type Route struct {

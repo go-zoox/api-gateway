@@ -40,9 +40,6 @@ type auditState struct {
 	reqBody      []byte
 	reqTruncated bool
 
-	// Per-request redact key set (from effective route/global json_audit).
-	redactKeys map[string]struct{}
-
 	// True when we should still emit audit if response is JSON-like (path + sample passed).
 	eligible bool
 }
@@ -125,7 +122,10 @@ func maxBodyFor(cfg *route.JSONAudit) int64 {
 }
 
 func buildRedactKeySet(cfg *route.JSONAudit) map[string]struct{} {
-	keys := cfg.RedactKeys
+	if !cfg.Redact.RedactEnabled() {
+		return nil
+	}
+	keys := cfg.Redact.Keys
 	if len(keys) == 0 {
 		keys = []string{
 			"password", "passwd", "secret", "token", "authorization",
@@ -183,6 +183,16 @@ func (j *JSONAudit) OnRequest(ctx *zoox.Context, _ *http.Request) error {
 
 	q := ctx.Request.URL.Query()
 	rk := buildRedactKeySet(acfg)
+	redactOn := acfg.Redact.RedactEnabled()
+	var headers map[string][]string
+	var query map[string][]string
+	if redactOn {
+		headers = cloneHeadersRedacted(ctx.Request.Header)
+		query = redactQueryValues(q, rk)
+	} else {
+		headers = cloneHeadersPlain(ctx.Request.Header)
+		query = copyQueryValues(q)
+	}
 	st := &auditState{
 		eligible:   true,
 		method:     ctx.Request.Method,
@@ -190,9 +200,8 @@ func (j *JSONAudit) OnRequest(ctx *zoox.Context, _ *http.Request) error {
 		remoteAddr: ctx.Request.RemoteAddr,
 		requestID:  firstHeader(ctx.Request, "X-Request-ID", "X-Correlation-ID", "X-Trace-ID"),
 		userAgent:  ctx.Request.UserAgent(),
-		headers:    cloneHeadersRedacted(ctx.Request.Header),
-		query:      redactQueryValues(q, rk),
-		redactKeys: rk,
+		headers:    headers,
+		query:      query,
 	}
 
 	raw, truncated, err := readBodyLimited(ctx.Request.Body, maxBodyFor(acfg))
@@ -241,8 +250,10 @@ func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 		return nil
 	}
 
-	reqBodyVal := j.requestBodyForLog(st.reqBody, st.redactKeys)
-	respBodyVal := j.requestBodyForLog(bodyForDetect, st.redactKeys)
+	rk := buildRedactKeySet(acfg)
+	redactOn := acfg.Redact.RedactEnabled()
+	reqBodyVal := j.requestBodyForLog(st.reqBody, rk, redactOn)
+	respBodyVal := j.requestBodyForLog(bodyForDetect, rk, redactOn)
 
 	reqObj := map[string]any{
 		"method":  st.method,
@@ -333,9 +344,16 @@ func redactJSONBytes(raw []byte, keys map[string]struct{}) any {
 	return redactValue(v, keys)
 }
 
-func (j *JSONAudit) requestBodyForLog(raw []byte, keys map[string]struct{}) any {
+func (j *JSONAudit) requestBodyForLog(raw []byte, keys map[string]struct{}, redactOn bool) any {
 	if len(raw) == 0 {
 		return nil
+	}
+	if !redactOn {
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return string(raw)
+		}
+		return v
 	}
 	if v := redactJSONBytes(raw, keys); v != nil {
 		return v
@@ -357,6 +375,30 @@ func cloneHeadersRedacted(h http.Header) map[string][]string {
 		cp := make([]string, len(vals))
 		copy(cp, vals)
 		out[k] = cp
+	}
+	return out
+}
+
+func cloneHeadersPlain(h http.Header) map[string][]string {
+	if len(h) == 0 {
+		return map[string][]string{}
+	}
+	out := make(map[string][]string, len(h))
+	for k, vals := range h {
+		cp := make([]string, len(vals))
+		copy(cp, vals)
+		out[k] = cp
+	}
+	return out
+}
+
+func copyQueryValues(q url.Values) map[string][]string {
+	if len(q) == 0 {
+		return map[string][]string{}
+	}
+	out := make(map[string][]string, len(q))
+	for k, vals := range q {
+		out[k] = append([]string(nil), vals...)
 	}
 	return out
 }
