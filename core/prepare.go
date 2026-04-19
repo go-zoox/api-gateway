@@ -110,11 +110,24 @@ func (c *core) preparePluginsBuildin() error {
 	}
 
 	// JSON audit (response JSON-like → log request + response)
-	if c.cfg.JSONAudit.Enable {
+	if c.shouldEnableJSONAudit() {
 		c.plugins = append(c.plugins, jsonaudit.New())
 	}
 
 	return nil
+}
+
+// shouldEnableJSONAudit is true when global json_audit is enabled or any route enables json_audit.
+func (c *core) shouldEnableJSONAudit() bool {
+	if c.cfg.JSONAudit.Enable {
+		return true
+	}
+	for _, rt := range c.cfg.Routes {
+		if rt.JSONAudit.Enable {
+			return true
+		}
+	}
+	return false
 }
 
 // shouldEnableRateLimit checks if rate limiting should be enabled

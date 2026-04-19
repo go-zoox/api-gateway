@@ -143,7 +143,7 @@ This plugin filters requests by base URI prefix.
 
 ### JSON audit plugin
 
-When **`json_audit.enable`** is **`true`**, the JSON audit plugin is registered:
+The JSON audit plugin is registered when **global** **`json_audit.enable`** is **`true`** or **any route** enables **`json_audit.enable`**:
 
 ```go
 // github.com/go-zoox/api-gateway/plugin/jsonaudit
@@ -152,7 +152,7 @@ type JSONAudit struct {
 }
 ```
 
-The **`json_audit`** keys map to **`config.JSONAudit`**; **`plugin/jsonaudit`** reads them from **`cfg.JSONAudit`** inside **`Prepare`** (same struct type via **`config`** import — no duplicate config type in the plugin).
+The **`json_audit`** keys map to **`config.JSONAudit`** (same shape as **`route.JSONAudit`**). **`Prepare`** loads the global block from **`cfg.JSONAudit`** and per-route overrides from **`cfg.Routes[*].JSONAudit`**; for each request, the effective settings use the **longest matching route prefix**, falling back to the global block when it is enabled.
 
 It logs paired request/response bodies when the upstream response is JSON-like. See the [JSON audit plugin guide](/guide/plugins/json-audit).
 

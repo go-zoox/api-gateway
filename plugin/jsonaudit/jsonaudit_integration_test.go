@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/go-zoox/api-gateway/config"
+	"github.com/go-zoox/api-gateway/core/route"
 	"github.com/go-zoox/logger"
 	"github.com/go-zoox/zoox"
 	"github.com/go-zoox/zoox/defaults"
@@ -39,13 +40,14 @@ func TestPrepare_DefaultRedactKeys(t *testing.T) {
 	if err := j.Prepare(app, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := j.defaultRedact["password"]; !ok {
+	keys := buildRedactKeySet(&j.globalConfig)
+	if _, ok := keys["password"]; !ok {
 		t.Fatal("expected built-in password key")
 	}
-	if j.maxBody() != 512 {
-		t.Fatalf("maxBody=%d", j.maxBody())
+	if maxBodyFor(&j.globalConfig) != 512 {
+		t.Fatalf("maxBody=%d", maxBodyFor(&j.globalConfig))
 	}
-	if j.effectiveSampleRate() != 1 {
+	if effectiveSampleRateFor(&j.globalConfig) != 1 {
 		t.Fatal()
 	}
 }
@@ -62,56 +64,57 @@ func TestPrepare_CustomRedactKeys(t *testing.T) {
 	if err := j.Prepare(app, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := j.defaultRedact["custom"]; !ok {
+	keys := buildRedactKeySet(&j.globalConfig)
+	if _, ok := keys["custom"]; !ok {
 		t.Fatal()
 	}
 }
 
 func TestEffectiveSampleRate_Clamp(t *testing.T) {
-	j := New()
-	j.cfg.SampleRate = 2
-	if g := j.effectiveSampleRate(); g != 1 {
+	cfg := &route.JSONAudit{SampleRate: 2}
+	if g := effectiveSampleRateFor(cfg); g != 1 {
 		t.Fatalf("want 1, got %v", g)
 	}
-	j.cfg.SampleRate = -5
-	if g := j.effectiveSampleRate(); g != 1 {
+	cfg.SampleRate = -5
+	if g := effectiveSampleRateFor(cfg); g != 1 {
 		t.Fatalf("want 1 for <=0, got %v", g)
 	}
-	j.cfg.SampleRate = 0.25
-	if g := j.effectiveSampleRate(); g != 0.25 {
+	cfg.SampleRate = 0.25
+	if g := effectiveSampleRateFor(cfg); g != 0.25 {
 		t.Fatal()
 	}
 }
 
 func TestMaxBody_DefaultWhenZero(t *testing.T) {
-	j := New()
-	j.cfg.MaxBodyBytes = 0
-	if j.maxBody() != 1048576 {
+	cfg := &route.JSONAudit{MaxBodyBytes: 0}
+	if maxBodyFor(cfg) != 1048576 {
 		t.Fatal()
 	}
 }
 
 func TestPathAllowed(t *testing.T) {
 	j := New()
-	j.cfg.IncludePaths = []string{"/api"}
-	j.cfg.ExcludePaths = []string{"/health"}
-	if j.pathAllowed("/api/v1") != true {
+	cfg := &route.JSONAudit{
+		IncludePaths: []string{"/api"},
+		ExcludePaths: []string{"/health"},
+	}
+	if !j.pathAllowed("/api/v1", cfg) {
 		t.Fatal()
 	}
-	if j.pathAllowed("/web") != false {
+	if j.pathAllowed("/web", cfg) {
 		t.Fatal()
 	}
-	j.cfg.IncludePaths = nil
-	if j.pathAllowed("/health/live") != false {
+	cfg.IncludePaths = nil
+	if j.pathAllowed("/health/live", cfg) {
 		t.Fatal()
 	}
 }
 
 func TestSampleHit_AlwaysOne(t *testing.T) {
 	j := New()
-	j.cfg.SampleRate = 1
+	cfg := &route.JSONAudit{SampleRate: 1}
 	for i := 0; i < 50; i++ {
-		if !j.sampleHit() {
+		if !j.sampleHit(cfg) {
 			t.Fatal()
 		}
 	}
@@ -119,7 +122,6 @@ func TestSampleHit_AlwaysOne(t *testing.T) {
 
 func TestOnRequest_Disabled(t *testing.T) {
 	j := New()
-	j.cfg.Enable = false
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
 	ctx := testZCtx(req)
 	if err := j.OnRequest(ctx, req); err != nil {
@@ -132,9 +134,15 @@ func TestOnRequest_Disabled(t *testing.T) {
 
 func TestOnRequest_PathExcluded_Skipped(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.ExcludePaths = []string{"/nobody"}
-	j.cfg.SampleRate = 1
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable:       true,
+			ExcludePaths: []string{"/nobody"},
+			SampleRate:   1,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/nobody/here", nil)
 	ctx := testZCtx(req)
 	if err := j.OnRequest(ctx, req); err != nil {
@@ -148,9 +156,15 @@ func TestOnRequest_PathExcluded_Skipped(t *testing.T) {
 
 func TestOnRequest_IncludeMismatch_Skipped(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.IncludePaths = []string{"/only-this"}
-	j.cfg.SampleRate = 1
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable:       true,
+			IncludePaths: []string{"/only-this"},
+			SampleRate:   1,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/other", nil)
 	ctx := testZCtx(req)
 	if err := j.OnRequest(ctx, req); err != nil {
@@ -164,8 +178,11 @@ func TestOnRequest_IncludeMismatch_Skipped(t *testing.T) {
 
 func TestOnRequest_ReadBodyError(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.SampleRate = 1
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{Enable: true, SampleRate: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/api", io.NopCloser(&errReader{err: errors.New("boom")}))
 	ctx := testZCtx(req)
 	err := j.OnRequest(ctx, req)
@@ -176,9 +193,7 @@ func TestOnRequest_ReadBodyError(t *testing.T) {
 
 func TestOnRequest_Success(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.SampleRate = 1
-	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: config.JSONAudit{Enable: true}}); err != nil {
+	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: config.JSONAudit{Enable: true, SampleRate: 1}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -204,7 +219,6 @@ func TestOnRequest_Success(t *testing.T) {
 
 func TestOnResponse_EarlyReturns(t *testing.T) {
 	j := New()
-	j.cfg.Enable = false
 	ctx := testZCtx(httptest.NewRequest(http.MethodGet, "/", nil))
 	if err := j.OnResponse(ctx, &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))}); err != nil {
 		t.Fatal(err)
@@ -213,7 +227,9 @@ func TestOnResponse_EarlyReturns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	j.cfg.Enable = true
+	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: config.JSONAudit{Enable: true}}); err != nil {
+		t.Fatal(err)
+	}
 	if err := j.OnResponse(ctx, jsonResponse(`{"a":1}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -227,9 +243,9 @@ func TestOnResponse_EarlyReturns(t *testing.T) {
 
 func TestOnResponse_NonJSON_NoLog(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.SniffJSON = false
-	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: j.cfg}); err != nil {
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{Enable: true, SniffJSON: false},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,8 +270,11 @@ func TestOnResponse_NonJSON_NoLog(t *testing.T) {
 
 func TestOnResponse_EmptyBody_NoAudit(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.SniffJSON = true
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{Enable: true, SniffJSON: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	ctx := auditContext(t, &auditState{eligible: true, method: "GET", path: "/p"})
 	res := jsonResponse(``)
 	if err := j.OnResponse(ctx, res); err != nil {
@@ -265,10 +284,9 @@ func TestOnResponse_EmptyBody_NoAudit(t *testing.T) {
 
 func TestOnResponse_GzipJSON(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.DecompressGzip = true
-	j.cfg.SniffJSON = true
-	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: j.cfg}); err != nil {
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{Enable: true, DecompressGzip: true, SniffJSON: true},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,10 +320,9 @@ func TestOnResponse_GzipJSON(t *testing.T) {
 
 func TestOnResponse_InvalidGzip_FallbackRaw(t *testing.T) {
 	j := New()
-	j.cfg.Enable = true
-	j.cfg.DecompressGzip = true
-	j.cfg.SniffJSON = true
-	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: j.cfg}); err != nil {
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{Enable: true, DecompressGzip: true, SniffJSON: true},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -428,11 +445,9 @@ func TestSnapshotParams_Zoox(t *testing.T) {
 }
 
 func TestRedactJSONBytes_Invalid(t *testing.T) {
-	j := New()
-	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: config.JSONAudit{Enable: true}}); err != nil {
-		t.Fatal(err)
-	}
-	if j.redactJSONBytes([]byte(`not json`)) != nil {
+	cfg := &route.JSONAudit{Enable: true}
+	keys := buildRedactKeySet(cfg)
+	if redactJSONBytes([]byte(`not json`), keys) != nil {
 		t.Fatal()
 	}
 }
@@ -442,7 +457,8 @@ func TestRequestBodyForLog_RawFallback(t *testing.T) {
 	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: config.JSONAudit{Enable: true}}); err != nil {
 		t.Fatal(err)
 	}
-	v := j.requestBodyForLog([]byte(`<<<not-json>>>`))
+	keys := buildRedactKeySet(&j.globalConfig)
+	v := j.requestBodyForLog([]byte(`<<<not-json>>>`), keys)
 	if s, ok := v.(string); !ok || s != `<<<not-json>>>` {
 		t.Fatalf("%#v", v)
 	}
@@ -477,7 +493,8 @@ func TestFirstHeader_SecondKey(t *testing.T) {
 
 func TestResponseLooksJSON_EmptyBody(t *testing.T) {
 	j := New()
-	if j.responseLooksJSON("application/json", nil) {
+	cfg := &route.JSONAudit{}
+	if j.responseLooksJSON(cfg, "application/json", nil) {
 		t.Fatal()
 	}
 }

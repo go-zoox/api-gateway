@@ -143,7 +143,7 @@ type BaseURI struct {
 
 ### JSON 审计插件
 
-当 **`json_audit.enable`** 为 **`true`** 时会注册 JSON 审计插件：
+当 **全局** **`json_audit.enable`** 为真，**或** **任一路由** 启用 **`json_audit.enable`** 时，会注册 JSON 审计插件：
 
 ```go
 // github.com/go-zoox/api-gateway/plugin/jsonaudit
@@ -152,7 +152,7 @@ type JSONAudit struct {
 }
 ```
 
-**`json_audit`** 对应 **`config.JSONAudit`**；插件在 **`Prepare`** 里直接使用 **`cfg.JSONAudit`**（通过 **`import config`**），插件包内不再单独定义一份配置结构体。
+**`json_audit`** 对应 **`config.JSONAudit`**（与 **`route.JSONAudit`** 同形）。**`Prepare`** 从 **`cfg.JSONAudit`** 读取全局配置，从 **`cfg.Routes[*].JSONAudit`** 读取路由级覆盖；对每个请求，按 **最长前缀匹配路由**，否则在全局 **`enable`** 为真时使用全局块。
 
 在上游响应为 JSON 类时记录成对的请求/响应体。详见 [JSON 审计插件](/zh/guide/plugins/json-audit)。
 

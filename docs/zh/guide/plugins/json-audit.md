@@ -2,7 +2,7 @@
 
 包路径：`github.com/go-zoox/api-gateway/plugin/jsonaudit`
 
-当 YAML 中 **`json_audit.enable`** 为 **`true`** 时会注册该插件。它在转发上游前**按需缓冲客户端请求体**（有上限），上游返回后在 **`OnResponse`** 中判断响应是否「**类似 JSON**」。只有满足条件时才会输出 **一条结构化 JSON 日志**，包含请求与响应内容（脱敏后），便于合规与安全审计。
+当 **顶层** **`json_audit.enable`** 为真，**或** **任一路由** 启用 **`json_audit.enable`** 时，会注册该插件（与限流的路由级启用方式一致）。它在转发上游前**按需缓冲客户端请求体**（有上限），上游返回后在 **`OnResponse`** 中判断响应是否「**类似 JSON**」。只有满足条件时才会输出 **一条结构化 JSON 日志**，包含请求与响应内容（脱敏后），便于合规与安全审计。
 
 ## 能力概览
 
@@ -231,7 +231,7 @@ json_audit:
 
 ### 字段说明（`json_audit`）
 
-**`json_audit`** 对应根配置里的 **`config.JSONAudit`**（见 [配置 API](/zh/api/config)）。插件在 **`Prepare`** 中直接使用 **`cfg.JSONAudit`**，不再在插件包内重复定义配置类型。
+**`json_audit`** 对应 **`config.JSONAudit`** / **`route.JSONAudit`**（见 [配置 API](/zh/api/config)）。根配置块作默认值，可在 **`routes[].json_audit`** 覆盖；插件对每个请求按 **最长前缀匹配** 路由后回退到全局 **`enable`** 为真时的全局块 —— 单一结构体类型，插件包内不再重复定义。
 
 YAML 使用 **snake_case**。
 

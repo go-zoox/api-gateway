@@ -2,7 +2,7 @@
 
 Package: `github.com/go-zoox/api-gateway/plugin/jsonaudit`
 
-When **`json_audit.enable`** is **`true`** in YAML, the gateway registers the JSON audit plugin. It buffers the **incoming request body** (bounded) before the upstream call, then after the upstream responds checks whether the **response looks like JSON**. Only then it emits **one structured JSON log line** containing both request and response payloads (after redaction), suitable for compliance / security audits.
+The gateway registers the JSON audit plugin when **top-level** **`json_audit.enable`** is **`true`** **or** **any route** sets **`json_audit.enable`** (same idea as rate limiting). It buffers the **incoming request body** (bounded) before the upstream call, then after the upstream responds checks whether the **response looks like JSON**. Only then it emits **one structured JSON log line** containing both request and response payloads (after redaction), suitable for compliance / security audits.
 
 ## Behaviour summary
 
@@ -231,7 +231,7 @@ json_audit:
 
 ### Field reference (`json_audit`)
 
-YAML **`json_audit`** maps to **`config.JSONAudit`** (see [Config API](/api/config)). The plugin stores **`cfg.JSONAudit`** on **`Prepare`** — one struct type, no separate **`jsonaudit.Config`** file.
+YAML **`json_audit`** maps to **`config.JSONAudit`** / **`route.JSONAudit`** (see [Config API](/api/config)). Use the **root** block for defaults and optional **`routes[].json_audit`** for overrides; the plugin resolves **longest-prefix** route settings per request, then falls back to the global block when **`enable`** is true — one struct type, no separate **`jsonaudit.Config`** file.
 
 YAML keys use **snake_case**.
 

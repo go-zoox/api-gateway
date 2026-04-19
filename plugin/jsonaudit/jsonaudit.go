@@ -9,10 +9,12 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/go-zoox/api-gateway/config"
+	"github.com/go-zoox/api-gateway/core/route"
 	"github.com/go-zoox/api-gateway/plugin"
 	"github.com/go-zoox/zoox"
 )
@@ -35,6 +37,9 @@ type auditState struct {
 	reqBody      []byte
 	reqTruncated bool
 
+	// Per-request redact key set (from effective route/global json_audit).
+	redactKeys map[string]struct{}
+
 	// True when we should still emit audit if response is JSON-like (path + sample passed).
 	eligible bool
 }
@@ -48,40 +53,36 @@ var sensitiveHeaderNames = map[string]struct{}{
 type JSONAudit struct {
 	plugin.Plugin
 
-	cfg config.JSONAudit
-
-	defaultRedact map[string]struct{}
+	globalConfig route.JSONAudit
+	routeConfigs map[string]*route.JSONAudit
 }
 
 // New builds a JSON audit plugin (call Prepare after construction via core).
 func New() *JSONAudit {
-	return &JSONAudit{}
+	return &JSONAudit{
+		routeConfigs: make(map[string]*route.JSONAudit),
+	}
 }
 
 // Prepare validates options and caches defaults.
 func (j *JSONAudit) Prepare(app *zoox.Application, cfg *config.Config) error {
-	j.cfg = cfg.JSONAudit
+	j.globalConfig = cfg.JSONAudit
 
-	j.defaultRedact = map[string]struct{}{}
-	keys := j.cfg.RedactKeys
-	if len(keys) == 0 {
-		keys = []string{
-			"password", "passwd", "secret", "token", "authorization",
-			"api_key", "apikey", "access_token", "refresh_token",
+	for _, rt := range cfg.Routes {
+		if rt.JSONAudit.Enable {
+			copyCfg := rt.JSONAudit
+			j.routeConfigs[rt.Path] = &copyCfg
 		}
 	}
-	for _, k := range keys {
-		j.defaultRedact[strings.ToLower(strings.TrimSpace(k))] = struct{}{}
-	}
 
-	app.Logger().Infof("[plugin:jsonaudit] prepare (enable=%v, max_body_bytes=%d, sample_rate=%g)",
-		j.cfg.Enable, j.maxBody(), j.effectiveSampleRate())
+	app.Logger().Infof("[plugin:jsonaudit] prepare (global enable=%v, route overrides=%d, max_body_bytes=%d, sample_rate=%g)",
+		j.globalConfig.Enable, len(j.routeConfigs), maxBodyFor(&j.globalConfig), effectiveSampleRateFor(&j.globalConfig))
 
 	return nil
 }
 
-func (j *JSONAudit) effectiveSampleRate() float64 {
-	r := j.cfg.SampleRate
+func effectiveSampleRateFor(cfg *route.JSONAudit) float64 {
+	r := cfg.SampleRate
 	if r <= 0 {
 		return 1
 	}
@@ -91,27 +92,73 @@ func (j *JSONAudit) effectiveSampleRate() float64 {
 	return r
 }
 
-func (j *JSONAudit) maxBody() int64 {
-	max := j.cfg.MaxBodyBytes
+func maxBodyFor(cfg *route.JSONAudit) int64 {
+	max := cfg.MaxBodyBytes
 	if max <= 0 {
 		return 1048576
 	}
 	return max
 }
 
+func buildRedactKeySet(cfg *route.JSONAudit) map[string]struct{} {
+	keys := cfg.RedactKeys
+	if len(keys) == 0 {
+		keys = []string{
+			"password", "passwd", "secret", "token", "authorization",
+			"api_key", "apikey", "access_token", "refresh_token",
+		}
+	}
+	out := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		out[strings.ToLower(strings.TrimSpace(k))] = struct{}{}
+	}
+	return out
+}
+
+// getJSONAuditConfig returns the effective json_audit config for a request path (route wins over global).
+func (j *JSONAudit) getJSONAuditConfig(path string) *route.JSONAudit {
+	routePaths := make([]string, 0, len(j.routeConfigs))
+	for routePath := range j.routeConfigs {
+		routePaths = append(routePaths, routePath)
+	}
+	sort.Slice(routePaths, func(i, jj int) bool {
+		return len(routePaths[i]) > len(routePaths[jj])
+	})
+
+	for _, routePath := range routePaths {
+		cfg := j.routeConfigs[routePath]
+		if path == routePath {
+			return cfg
+		}
+		if len(path) > len(routePath) && path[:len(routePath)] == routePath {
+			if path[len(routePath)] == '/' {
+				return cfg
+			}
+		}
+	}
+
+	if j.globalConfig.Enable {
+		return &j.globalConfig
+	}
+
+	return nil
+}
+
 // OnRequest snapshots the client request body (bounded) for pairing with JSON responses.
 func (j *JSONAudit) OnRequest(ctx *zoox.Context, _ *http.Request) error {
-	if !j.cfg.Enable {
+	path := ctx.Path
+	acfg := j.getJSONAuditConfig(path)
+	if acfg == nil || !acfg.Enable {
 		return nil
 	}
 
-	path := ctx.Path
-	if !j.pathAllowed(path) || !j.sampleHit() {
+	if !j.pathAllowed(path, acfg) || !j.sampleHit(acfg) {
 		ctx.Request = ctx.Request.WithContext(context.WithValue(ctx.Request.Context(), auditStateKey, &auditState{skipped: true}))
 		return nil
 	}
 
 	q := ctx.Request.URL.Query()
+	rk := buildRedactKeySet(acfg)
 	st := &auditState{
 		eligible:   true,
 		method:     ctx.Request.Method,
@@ -120,10 +167,11 @@ func (j *JSONAudit) OnRequest(ctx *zoox.Context, _ *http.Request) error {
 		requestID:  firstHeader(ctx.Request, "X-Request-ID", "X-Correlation-ID", "X-Trace-ID"),
 		userAgent:  ctx.Request.UserAgent(),
 		headers:    cloneHeadersRedacted(ctx.Request.Header),
-		query:      redactQueryValues(q, j.defaultRedact),
+		query:      redactQueryValues(q, rk),
+		redactKeys: rk,
 	}
 
-	raw, truncated, err := readBodyLimited(ctx.Request.Body, j.maxBody())
+	raw, truncated, err := readBodyLimited(ctx.Request.Body, maxBodyFor(acfg))
 	if err != nil {
 		return err
 	}
@@ -137,7 +185,7 @@ func (j *JSONAudit) OnRequest(ctx *zoox.Context, _ *http.Request) error {
 
 // OnResponse emits one audit log line when the upstream response looks like JSON.
 func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
-	if !j.cfg.Enable || res == nil {
+	if res == nil {
 		return nil
 	}
 
@@ -146,7 +194,12 @@ func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 		return nil
 	}
 
-	raw, truncated, err := readBodyLimited(res.Body, j.maxBody())
+	acfg := j.getJSONAuditConfig(st.path)
+	if acfg == nil || !acfg.Enable {
+		return nil
+	}
+
+	raw, truncated, err := readBodyLimited(res.Body, maxBodyFor(acfg))
 	if err != nil {
 		return err
 	}
@@ -154,18 +207,18 @@ func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 
 	encoding := res.Header.Get("Content-Encoding")
 	bodyForDetect := raw
-	if j.cfg.DecompressGzip && strings.Contains(strings.ToLower(encoding), "gzip") {
-		if dec, err := gunzipLimited(raw, j.maxBody()); err == nil {
+	if acfg.DecompressGzip && strings.Contains(strings.ToLower(encoding), "gzip") {
+		if dec, err := gunzipLimited(raw, maxBodyFor(acfg)); err == nil {
 			bodyForDetect = dec
 		}
 	}
 
-	if !j.responseLooksJSON(res.Header.Get("Content-Type"), bodyForDetect) {
+	if !j.responseLooksJSON(acfg, res.Header.Get("Content-Type"), bodyForDetect) {
 		return nil
 	}
 
-	reqBodyVal := j.requestBodyForLog(st.reqBody)
-	respBodyVal := j.requestBodyForLog(bodyForDetect)
+	reqBodyVal := j.requestBodyForLog(st.reqBody, st.redactKeys)
+	respBodyVal := j.requestBodyForLog(bodyForDetect, st.redactKeys)
 
 	reqObj := map[string]any{
 		"method":  st.method,
@@ -209,20 +262,20 @@ func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 	return nil
 }
 
-func (j *JSONAudit) pathAllowed(path string) bool {
-	if len(j.cfg.IncludePaths) > 0 {
-		if !hasPrefixAny(path, j.cfg.IncludePaths) {
+func (j *JSONAudit) pathAllowed(path string, cfg *route.JSONAudit) bool {
+	if len(cfg.IncludePaths) > 0 {
+		if !hasPrefixAny(path, cfg.IncludePaths) {
 			return false
 		}
 	}
-	if hasPrefixAny(path, j.cfg.ExcludePaths) {
+	if hasPrefixAny(path, cfg.ExcludePaths) {
 		return false
 	}
 	return true
 }
 
-func (j *JSONAudit) sampleHit() bool {
-	rate := j.effectiveSampleRate()
+func (j *JSONAudit) sampleHit(cfg *route.JSONAudit) bool {
+	rate := effectiveSampleRateFor(cfg)
 	if rate >= 1 {
 		return true
 	}
@@ -232,20 +285,20 @@ func (j *JSONAudit) sampleHit() bool {
 	return rand.Float64() < rate
 }
 
-func (j *JSONAudit) responseLooksJSON(ct string, body []byte) bool {
+func (j *JSONAudit) responseLooksJSON(cfg *route.JSONAudit, ct string, body []byte) bool {
 	if len(body) == 0 {
 		return false
 	}
 	if jsonMIME(ct) {
 		return true
 	}
-	if !j.cfg.SniffJSON {
+	if !cfg.SniffJSON {
 		return false
 	}
 	return json.Valid(bytes.TrimSpace(body))
 }
 
-func (j *JSONAudit) redactJSONBytes(raw []byte) any {
+func redactJSONBytes(raw []byte, keys map[string]struct{}) any {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -253,14 +306,14 @@ func (j *JSONAudit) redactJSONBytes(raw []byte) any {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return nil
 	}
-	return redactValue(v, j.defaultRedact)
+	return redactValue(v, keys)
 }
 
-func (j *JSONAudit) requestBodyForLog(raw []byte) any {
+func (j *JSONAudit) requestBodyForLog(raw []byte, keys map[string]struct{}) any {
 	if len(raw) == 0 {
 		return nil
 	}
-	if v := j.redactJSONBytes(raw); v != nil {
+	if v := redactJSONBytes(raw, keys); v != nil {
 		return v
 	}
 	return string(raw)

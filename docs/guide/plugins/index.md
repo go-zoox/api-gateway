@@ -8,7 +8,7 @@ API Gateway exposes a dedicated **plugins** area: each built-in capability lives
 | --- | --- | --- |
 | [Base URI](./base-uri) | `plugin/baseuri` | YAML `baseuri` is non-empty |
 | [Rate limiting](./rate-limit) | `plugin/ratelimit` | Global `rate_limit.enable` or any route has `rate_limit.enable` |
-| [JSON audit](./json-audit) | `plugin/jsonaudit` | Top-level `json_audit.enable` is true |
+| [JSON audit](./json-audit) | `plugin/jsonaudit` | Top-level `json_audit.enable` or any route has `json_audit.enable` |
 
 ## Plugin interface
 

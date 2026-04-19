@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/go-zoox/api-gateway/core/route"
 )
 
 func TestJSONMIME(t *testing.T) {
@@ -72,19 +74,19 @@ func TestReadBodyLimited(t *testing.T) {
 
 func TestResponseLooksJSON(t *testing.T) {
 	j := &JSONAudit{}
-	j.cfg.SniffJSON = true
+	cfg := &route.JSONAudit{SniffJSON: true}
 
-	if !j.responseLooksJSON("application/json", []byte(`not valid json`)) {
+	if !j.responseLooksJSON(cfg, "application/json", []byte(`not valid json`)) {
 		t.Fatal("content-type json should qualify")
 	}
-	if j.responseLooksJSON("", []byte(`not json`)) {
+	if j.responseLooksJSON(cfg, "", []byte(`not json`)) {
 		t.Fatal("non-json body should not qualify without sniff match")
 	}
-	if !j.responseLooksJSON("", []byte(`{"x":1}`)) {
+	if !j.responseLooksJSON(cfg, "", []byte(`{"x":1}`)) {
 		t.Fatal("sniff valid json")
 	}
-	j.cfg.SniffJSON = false
-	if j.responseLooksJSON("", []byte(`{"x":1}`)) {
+	cfg.SniffJSON = false
+	if j.responseLooksJSON(cfg, "", []byte(`{"x":1}`)) {
 		t.Fatal("sniff disabled")
 	}
 }
