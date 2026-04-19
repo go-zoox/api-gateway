@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-zoox/kv"
+	kvredis "github.com/go-zoox/kv/redis"
 )
 
 // redisRateLimitEntry stores both count and resetTime to maintain fixed window
@@ -16,7 +17,8 @@ type redisRateLimitEntry struct {
 
 // RedisStorage implements Redis-based rate limit storage
 type RedisStorage struct {
-	cache kv.KV
+	cache          kv.KV
+	ownsConnection bool // true if we created the connection and should close it
 }
 
 // NewRedisStorage creates a new Redis storage
@@ -25,7 +27,8 @@ func NewRedisStorage(cache interface{}) (*RedisStorage, error) {
 	// Try to get kv.KV directly
 	if kvCache, ok := cache.(kv.KV); ok {
 		return &RedisStorage{
-			cache: kvCache,
+			cache:          kvCache,
+			ownsConnection: false, // connection managed externally
 		}, nil
 	}
 
@@ -36,7 +39,8 @@ func NewRedisStorage(cache interface{}) (*RedisStorage, error) {
 			return nil, fmt.Errorf("failed to create kv from config: %w", err)
 		}
 		return &RedisStorage{
-			cache: kvCache,
+			cache:          kvCache,
+			ownsConnection: true, // we own this connection and must close it
 		}, nil
 	}
 
@@ -121,6 +125,16 @@ func (s *RedisStorage) Reset(ctx context.Context, key string) error {
 
 // Close closes the storage
 func (s *RedisStorage) Close() error {
-	// Redis connection is managed by the cache, nothing to close here
+	// Only close the connection if we created it
+	if !s.ownsConnection {
+		return nil
+	}
+
+	// Try to access the underlying Redis client and close it
+	// The go-zoox/kv/redis.Redis struct has a Core field with a Close method
+	if r, ok := s.cache.(*kvredis.Redis); ok && r.Core != nil {
+		return r.Core.Close()
+	}
+
 	return nil
 }
