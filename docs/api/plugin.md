@@ -151,5 +151,5 @@ This plugin filters requests by base URI prefix.
 
 ## See Also
 
-- [Plugins Guide](/guide/plugins) - Plugin development guide
+- [Plugins Guide](/guide/plugins/) - Plugin overview and built-in plugins
 - [Config API](/api/config) - Configuration API

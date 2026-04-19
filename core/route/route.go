@@ -13,7 +13,7 @@ type Backend struct {
 type RateLimit struct {
 	Enable    bool              `config:"enable"`
 	Algorithm string            `config:"algorithm,default=token-bucket"` // token-bucket, leaky-bucket, fixed-window
-	Storage   string            `config:"storage,default=memory"`         // memory, redis
+	Storage   string            `config:"storage"`                         // Deprecated: ignored. Rate limits always use zoox Application.Cache().
 	KeyType   string            `config:"key_type,default=ip"`            // ip, user, apikey, header
 	KeyHeader string            `config:"key_header"`                     // when key_type=header, specify header name
 	Limit     int64             `config:"limit"`                          // limit count

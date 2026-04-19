@@ -2,104 +2,70 @@ package ratelimit
 
 import (
 	"context"
-	"sync"
 	"time"
 )
 
-// leakyBucketState stores the state for a leaky bucket key
-type leakyBucketState struct {
-	level      float64   // current water level in the bucket
-	lastUpdate time.Time // last time the bucket was updated
-	mu         sync.Mutex
+var leakyStripes stripes256
+
+// lbState is persisted under Application.Cache() at ratelimit:lb:<client key>.
+type lbState struct {
+	Level      float64   `json:"level"`
+	LastUpdate time.Time `json:"last_update"`
 }
 
-// LeakyBucketAlgorithm implements leaky bucket rate limiting
-type LeakyBucketAlgorithm struct {
-	mu     sync.RWMutex
-	states map[string]*leakyBucketState
-}
+// LeakyBucketAlgorithm implements leaky bucket rate limiting backed by Storage (Application.Cache).
+type LeakyBucketAlgorithm struct{}
 
-// getState gets or creates a state for the given key
-func (a *LeakyBucketAlgorithm) getState(key string) *leakyBucketState {
-	a.mu.RLock()
-	if a.states == nil {
-		a.mu.RUnlock()
-		a.mu.Lock()
-		if a.states == nil {
-			a.states = make(map[string]*leakyBucketState)
-		}
-		a.mu.Unlock()
-		a.mu.RLock()
-	}
-	state, exists := a.states[key]
-	a.mu.RUnlock()
-
-	if !exists {
-		a.mu.Lock()
-		state, exists = a.states[key]
-		if !exists {
-			state = &leakyBucketState{
-				level:      0,
-				lastUpdate: time.Now(),
-			}
-			a.states[key] = state
-		}
-		a.mu.Unlock()
-	}
-
-	return state
-}
-
-// Allow checks if a request is allowed using leaky bucket algorithm
+// Allow checks if a request is allowed using leaky bucket logic.
 func (a *LeakyBucketAlgorithm) Allow(ctx context.Context, storage Storage, key string, limit int64, window time.Duration, burst int64) (bool, int64, time.Time, error) {
-	// Leaky bucket: constant rate processing
-	// The bucket leaks at a constant rate (limit/window)
-	// Each request adds 1 to the bucket
-	// If the bucket would overflow (level + 1 > limit), request is rejected
+	unlock := leakyStripes.lock("lb:" + key)
+	defer unlock()
 
-	state := a.getState(key)
-	state.mu.Lock()
-	defer state.mu.Unlock()
+	ttl := stateCacheTTL(window)
 
+	var st lbState
+	err := storage.LoadState(ctx, "lb", key, &st)
 	now := time.Now()
+	if err != nil {
+		st = lbState{
+			Level:      0,
+			LastUpdate: now,
+		}
+	}
 
-	// Calculate leak rate: limit requests per window
 	leakRate := float64(limit) / window.Seconds()
 
-	// Calculate how much has leaked since last update
-	elapsed := now.Sub(state.lastUpdate).Seconds()
+	elapsed := now.Sub(st.LastUpdate).Seconds()
 	leaked := leakRate * elapsed
 
-	// Update the water level (subtract leaked amount)
-	state.level -= leaked
-	if state.level < 0 {
-		state.level = 0
+	st.Level -= leaked
+	if st.Level < 0 {
+		st.Level = 0
 	}
-	state.lastUpdate = now
+	st.LastUpdate = now
 
-	// Check if adding 1 request would overflow the bucket
-	// Use a small epsilon to handle floating point precision issues
-	if state.level+1 > float64(limit)+0.0001 {
-		// Bucket would overflow, reject request
-		// Calculate when bucket will have space (when level drops enough to accept 1 more)
-		timeUntilSpace := (state.level + 1 - float64(limit)) / leakRate
+	if st.Level+1 > float64(limit)+0.0001 {
+		timeUntilSpace := (st.Level + 1 - float64(limit)) / leakRate
 		resetTime := now.Add(time.Duration(timeUntilSpace * float64(time.Second)))
-		remaining := int64(0)
-		return false, remaining, resetTime, nil
+		if err := storage.SaveState(ctx, "lb", key, &st, ttl); err != nil {
+			return false, 0, time.Time{}, err
+		}
+		return false, 0, resetTime, nil
 	}
 
-	// Add the request to the bucket
-	state.level += 1
+	st.Level += 1
 
-	// Calculate remaining capacity
-	remaining := int64(float64(limit) - state.level)
+	remaining := int64(float64(limit) - st.Level)
 	if remaining < 0 {
 		remaining = 0
 	}
 
-	// Calculate reset time (when bucket will be empty)
-	timeUntilEmpty := state.level / leakRate
+	timeUntilEmpty := st.Level / leakRate
 	resetTime := now.Add(time.Duration(timeUntilEmpty * float64(time.Second)))
+
+	if err := storage.SaveState(ctx, "lb", key, &st, ttl); err != nil {
+		return false, 0, time.Time{}, err
+	}
 
 	return true, remaining, resetTime, nil
 }

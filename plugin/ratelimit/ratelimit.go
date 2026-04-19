@@ -10,7 +10,6 @@ import (
 	"github.com/go-zoox/api-gateway/config"
 	"github.com/go-zoox/api-gateway/core/route"
 	"github.com/go-zoox/api-gateway/plugin"
-	"github.com/go-zoox/core-utils/fmt"
 	"github.com/go-zoox/proxy"
 	"github.com/go-zoox/zoox"
 )
@@ -28,10 +27,7 @@ type RateLimit struct {
 	// Components
 	extractorFactory *ExtractorFactory
 	algorithmFactory *AlgorithmFactory
-	storageFactory   *StorageFactory
-
-	// Storage instances (keyed by storage type)
-	storages map[string]Storage
+	limitStore       Storage // zoox.Application.Cache()
 }
 
 // New creates a new rate limit plugin
@@ -40,8 +36,6 @@ func New() *RateLimit {
 		routeConfigs:     make(map[string]*route.RateLimit),
 		extractorFactory: &ExtractorFactory{},
 		algorithmFactory: &AlgorithmFactory{},
-		storageFactory:   &StorageFactory{},
-		storages:         make(map[string]Storage),
 	}
 }
 
@@ -60,94 +54,54 @@ func (r *RateLimit) Prepare(app *zoox.Application, cfg *config.Config) error {
 		}
 	}
 
-	// Initialize storages
-	if err := r.initializeStorages(app, cfg); err != nil {
-		app.Logger().Warnf("[plugin:ratelimit] failed to initialize storages: %s, falling back to memory", err)
-		// Fallback to memory storage
-		memoryStorage, _ := r.storageFactory.NewStorage("memory", nil)
-		if memoryStorage != nil {
-			r.storages["memory"] = memoryStorage
-		}
-	}
+	r.attachApplicationCache(app)
 
 	app.Logger().Infof("[plugin:ratelimit] rate limit plugin initialized")
 	return nil
 }
 
-// initializeStorages initializes storage instances
-func (r *RateLimit) initializeStorages(app *zoox.Application, cfg *config.Config) error {
-	// Initialize memory storage (always available)
-	memoryStorage, err := r.storageFactory.NewStorage("memory", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create memory storage: %w", err)
+func (r *RateLimit) attachApplicationCache(app *zoox.Application) {
+	if app == nil {
+		return
 	}
-	r.storages["memory"] = memoryStorage
-
-	// Initialize Redis storage if cache is configured
-	if cfg.Cache.Host != "" {
-		// Try to get cache from app config
-		// Note: This is a simplified approach - in practice, you might need
-		// to access the cache differently based on the zoox framework
-		redisStorage, err := r.storageFactory.NewStorage("redis", app.Config.Cache)
-		if err != nil {
-			app.Logger().Warnf("[plugin:ratelimit] failed to create redis storage: %s", err)
-		} else {
-			r.storages["redis"] = redisStorage
-		}
-	}
-
-	return nil
+	r.limitStore = newCacheStorage(app.Cache())
 }
 
 // OnRequest checks rate limit before forwarding request
 func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
-	// Get route-specific or global rate limit configuration
 	rateLimitConfig := r.getRateLimitConfig(ctx.Path)
 	if rateLimitConfig == nil || !rateLimitConfig.Enable {
-		return nil // Rate limiting disabled for this route
+		return nil
 	}
 
-	// Validate configuration
 	if rateLimitConfig.Limit <= 0 {
 		ctx.Logger.Warnf("[plugin:ratelimit] invalid limit: %d", rateLimitConfig.Limit)
-		return nil // Invalid config, skip rate limiting
+		return nil
 	}
 
 	if rateLimitConfig.Window <= 0 {
 		ctx.Logger.Warnf("[plugin:ratelimit] invalid window: %d", rateLimitConfig.Window)
-		return nil // Invalid config, skip rate limiting
+		return nil
 	}
 
-	// Extract key
 	extractor := r.extractorFactory.NewExtractor(rateLimitConfig.KeyType, rateLimitConfig.KeyHeader)
 	key, err := extractor.Extract(ctx, req)
 	if err != nil {
 		ctx.Logger.Warnf("[plugin:ratelimit] failed to extract key: %s", err)
-		return nil // Skip rate limiting on extraction error
+		return nil
 	}
 
-	// Get storage
-	storageType := rateLimitConfig.Storage
-	if storageType == "" {
-		storageType = "memory"
-	}
-	storage, ok := r.storages[storageType]
-	if !ok {
-		ctx.Logger.Warnf("[plugin:ratelimit] storage not found: %s, falling back to memory", storageType)
-		storage = r.storages["memory"]
-		if storage == nil {
-			return nil // No storage available, skip rate limiting
-		}
+	if r.limitStore == nil {
+		ctx.Logger.Warnf("[plugin:ratelimit] storage not initialized, skip rate limiting")
+		return nil
 	}
 
-	// Get algorithm
 	algorithm := r.algorithmFactory.NewAlgorithm(rateLimitConfig.Algorithm)
 
-	// Check rate limit
 	window := time.Duration(rateLimitConfig.Window) * time.Second
 	allowed, remaining, resetTime, err := algorithm.Allow(
 		context.Background(),
-		storage,
+		r.limitStore,
 		key,
 		rateLimitConfig.Limit,
 		window,
@@ -156,10 +110,9 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 
 	if err != nil {
 		ctx.Logger.Errorf("[plugin:ratelimit] rate limit check failed: %s", err)
-		return nil // On error, allow request (fail open)
+		return nil
 	}
 
-	// Store rate limit info in request context for OnResponse to set headers
 	reqCtx := req.Context()
 	reqCtx = context.WithValue(reqCtx, "ratelimit:limit", rateLimitConfig.Limit)
 	reqCtx = context.WithValue(reqCtx, "ratelimit:remaining", remaining)
@@ -167,31 +120,25 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 	*req = *req.WithContext(reqCtx)
 
 	if !allowed {
-		// Rate limit exceeded
 		message := rateLimitConfig.Message
 		if message == "" {
 			message = "Too Many Requests"
 		}
 
-		// Calculate Retry-After
 		retryAfter := int64(time.Until(resetTime).Seconds())
 		if retryAfter < 0 {
 			retryAfter = 0
 		}
 
-		// Store retryAfter in context for potential use in OnResponse
 		reqCtx = context.WithValue(reqCtx, "ratelimit:retryAfter", retryAfter)
 		*req = *req.WithContext(reqCtx)
 
-		// Set rate limit headers directly on the response since OnResponse won't be called for errors
-		// Check if Writer is available (may be nil in test environments)
 		if ctx.Writer != nil {
 			ctx.Writer.Header().Set("X-RateLimit-Limit", strconv.FormatInt(rateLimitConfig.Limit, 10))
 			ctx.Writer.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
 			ctx.Writer.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetTime.Unix(), 10))
 			ctx.Writer.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
 
-			// Apply custom headers from configuration
 			for headerName, headerValue := range rateLimitConfig.Headers {
 				ctx.Writer.Header().Set(headerName, headerValue)
 			}
@@ -206,7 +153,6 @@ func (r *RateLimit) OnRequest(ctx *zoox.Context, req *http.Request) error {
 
 // OnResponse is called after receiving response
 func (r *RateLimit) OnResponse(ctx *zoox.Context, res *http.Response) error {
-	// Set rate limit headers from request context
 	reqCtx := ctx.Request.Context()
 	if limit, ok := reqCtx.Value("ratelimit:limit").(int64); ok {
 		res.Header.Set("X-RateLimit-Limit", strconv.FormatInt(limit, 10))
@@ -217,17 +163,13 @@ func (r *RateLimit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 	if reset, ok := reqCtx.Value("ratelimit:reset").(int64); ok {
 		res.Header.Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
 	}
-	// Set Retry-After header if available (for successful responses, this may not be set)
 	if retryAfter, ok := reqCtx.Value("ratelimit:retryAfter").(int64); ok {
 		res.Header.Set("Retry-After", strconv.FormatInt(retryAfter, 10))
 	}
 	return nil
 }
 
-// getRateLimitConfig gets rate limit configuration for a route
-// Route-specific config takes precedence over global config
 func (r *RateLimit) getRateLimitConfig(path string) *route.RateLimit {
-	// Collect route paths and sort by length (longest first) for deterministic matching
 	routePaths := make([]string, 0, len(r.routeConfigs))
 	for routePath := range r.routeConfigs {
 		routePaths = append(routePaths, routePath)
@@ -236,23 +178,18 @@ func (r *RateLimit) getRateLimitConfig(path string) *route.RateLimit {
 		return len(routePaths[i]) > len(routePaths[j])
 	})
 
-	// Check route-specific config in order of path length (longest first)
 	for _, routePath := range routePaths {
 		config := r.routeConfigs[routePath]
-		// Exact match
 		if path == routePath {
 			return config
 		}
-		// Prefix match: path must start with routePath AND the next character (if any) must be '/'
 		if len(path) > len(routePath) && path[:len(routePath)] == routePath {
-			// Check if the character after the prefix is a path separator
 			if path[len(routePath)] == '/' {
 				return config
 			}
 		}
 	}
 
-	// Fall back to global config
 	if r.globalConfig.Enable {
 		return &r.globalConfig
 	}

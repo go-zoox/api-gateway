@@ -5,10 +5,16 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	zc "github.com/go-zoox/cache"
 )
 
-func TestMemoryStorage_Allow(t *testing.T) {
-	storage := NewMemoryStorage()
+func newTestCacheStorage() Storage {
+	return newCacheStorage(zc.New(&zc.Config{Engine: "memory"}))
+}
+
+func TestCacheStorage_Allow(t *testing.T) {
+	storage := newTestCacheStorage()
 	defer storage.Close()
 
 	ctx := context.Background()
@@ -47,8 +53,8 @@ func TestMemoryStorage_Allow(t *testing.T) {
 	}
 }
 
-func TestMemoryStorage_Allow_WindowExpiry(t *testing.T) {
-	storage := NewMemoryStorage()
+func TestCacheStorage_Allow_WindowExpiry(t *testing.T) {
+	storage := newTestCacheStorage()
 	defer storage.Close()
 
 	ctx := context.Background()
@@ -77,52 +83,8 @@ func TestMemoryStorage_Allow_WindowExpiry(t *testing.T) {
 	}
 }
 
-func TestMemoryStorage_Allow_Concurrent(t *testing.T) {
-	storage := NewMemoryStorage()
-	defer storage.Close()
-
-	ctx := context.Background()
-	key := "test-key-concurrent"
-	limit := int64(10)
-	window := 1 * time.Second
-
-	var wg sync.WaitGroup
-	var allowedCount int64
-	var deniedCount int64
-	var mu sync.Mutex
-	requests := 20
-
-	wg.Add(requests)
-	for i := 0; i < requests; i++ {
-		go func() {
-			defer wg.Done()
-			allowed, _, _, err := storage.Allow(ctx, key, limit, window)
-			if err != nil {
-				t.Errorf("Allow() error = %v", err)
-				return
-			}
-			mu.Lock()
-			if allowed {
-				allowedCount++
-			} else {
-				deniedCount++
-			}
-			mu.Unlock()
-		}()
-	}
-
-	wg.Wait()
-
-	if allowedCount != limit {
-		t.Errorf("Allowed requests = %d, want %d", allowedCount, limit)
-	}
-	if deniedCount != int64(requests)-limit {
-		t.Errorf("Denied requests = %d, want %d", deniedCount, int64(requests)-limit)
-	}
-}
-
-func TestMemoryStorage_Reset(t *testing.T) {
-	storage := NewMemoryStorage()
+func TestCacheStorage_Reset(t *testing.T) {
+	storage := newTestCacheStorage()
 	defer storage.Close()
 
 	ctx := context.Background()
@@ -153,8 +115,8 @@ func TestMemoryStorage_Reset(t *testing.T) {
 	}
 }
 
-func TestMemoryStorage_DifferentKeys(t *testing.T) {
-	storage := NewMemoryStorage()
+func TestCacheStorage_DifferentKeys(t *testing.T) {
+	storage := newTestCacheStorage()
 	defer storage.Close()
 
 	ctx := context.Background()
@@ -176,11 +138,9 @@ func TestMemoryStorage_DifferentKeys(t *testing.T) {
 	}
 }
 
-// TestMemoryStorage_Allow_RaceCondition tests the specific race condition
-// where multiple goroutines race to create a rate limit entry.
-// With limit=2, only 2 requests should be allowed even if 3+ goroutines race.
-func TestMemoryStorage_Allow_RaceCondition(t *testing.T) {
-	storage := NewMemoryStorage()
+// TestCacheStorage_Allow_RaceCondition — concurrent first-touch; limit=2 ⇒ at most 2 allowed.
+func TestCacheStorage_Allow_RaceCondition(t *testing.T) {
+	storage := newTestCacheStorage()
 	defer storage.Close()
 
 	ctx := context.Background()

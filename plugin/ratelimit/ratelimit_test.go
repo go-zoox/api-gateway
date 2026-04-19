@@ -1,6 +1,10 @@
 package ratelimit
 
 import (
+	"bufio"
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,9 +12,59 @@ import (
 	"github.com/go-zoox/api-gateway/config"
 	"github.com/go-zoox/api-gateway/core/route"
 	"github.com/go-zoox/logger"
+	"github.com/go-zoox/proxy"
 	"github.com/go-zoox/zoox"
 	"github.com/go-zoox/zoox/defaults"
 )
+
+// testZooxResponseWriter wraps httptest.ResponseRecorder so it satisfies zoox.ResponseWriter
+// for tests that need Header() on the gateway response.
+type testZooxResponseWriter struct {
+	*httptest.ResponseRecorder
+}
+
+func (w *testZooxResponseWriter) CloseNotify() <-chan bool {
+	ch := make(chan bool, 1)
+	return ch
+}
+
+func (w *testZooxResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return nil, nil, fmt.Errorf("hijack not supported")
+}
+
+func (w *testZooxResponseWriter) Flush() {}
+
+func (w *testZooxResponseWriter) Status() int {
+	if w.Code != 0 {
+		return w.Code
+	}
+	return http.StatusOK
+}
+
+func (w *testZooxResponseWriter) Size() int {
+	return w.Body.Len()
+}
+
+func (w *testZooxResponseWriter) WriteString(s string) (int, error) {
+	w.Write([]byte(s))
+	return len(s), nil
+}
+
+func (w *testZooxResponseWriter) Written() bool {
+	return w.Body.Len() > 0
+}
+
+func (w *testZooxResponseWriter) Pusher() http.Pusher {
+	return nil
+}
+
+func (w *testZooxResponseWriter) WriteHeaderNow() {
+	if w.Code == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+var _ zoox.ResponseWriter = (*testZooxResponseWriter)(nil)
 
 // createTestContext creates a test context with logger
 func createTestContext(req *http.Request) *zoox.Context {
@@ -18,6 +72,17 @@ func createTestContext(req *http.Request) *zoox.Context {
 		Request: req,
 		Path:    req.URL.Path,
 		Logger:  logger.New(),
+	}
+	return ctx
+}
+
+func createTestContextWithWriter(req *http.Request, w zoox.ResponseWriter) *zoox.Context {
+	ctx := &zoox.Context{
+		Request:  req,
+		Path:     req.URL.Path,
+		Logger:   logger.New(),
+		Writer:   w,
+		Response: w,
 	}
 	return ctx
 }
@@ -247,9 +312,9 @@ func TestRateLimit_InvalidConfig(t *testing.T) {
 func TestRateLimit_PathBoundaryMatching(t *testing.T) {
 	// Test cases: path -> should match /users route?
 	testCases := []struct {
-		path         string
-		shouldMatch  bool
-		description  string
+		path        string
+		shouldMatch bool
+		description string
 	}{
 		{"/users", true, "exact match"},
 		{"/users/", true, "exact match with trailing slash"},
@@ -313,5 +378,194 @@ func TestRateLimit_PathBoundaryMatching(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRateLimit_InvalidWindow(t *testing.T) {
+	plugin := New()
+	app := defaults.Default()
+	cfg := &config.Config{
+		RateLimit: route.RateLimit{
+			Enable:    true,
+			Algorithm: "fixed-window",
+			Storage:   "memory",
+			KeyType:   "ip",
+			Limit:     10,
+			Window:    0,
+		},
+	}
+
+	if err := plugin.Prepare(app, cfg); err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	ctx := createTestContext(req)
+	if err := plugin.OnRequest(ctx, req); err != nil {
+		t.Errorf("OnRequest() error = %v, want nil when window is invalid", err)
+	}
+}
+
+func TestRateLimit_RouteOverridesGlobal(t *testing.T) {
+	plugin := New()
+	app := defaults.Default()
+	cfg := &config.Config{
+		RateLimit: route.RateLimit{
+			Enable:    true,
+			Algorithm: "fixed-window",
+			Storage:   "memory",
+			KeyType:   "ip",
+			Limit:     100,
+			Window:    60,
+		},
+		Routes: []route.Route{
+			{
+				Path: "/vip",
+				RateLimit: route.RateLimit{
+					Enable:    true,
+					Algorithm: "fixed-window",
+					Storage:   "memory",
+					KeyType:   "ip",
+					Limit:     2,
+					Window:    60,
+				},
+			},
+		},
+	}
+
+	if err := plugin.Prepare(app, cfg); err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	vip := httptest.NewRequest("GET", "/vip", nil)
+	vipCtx := createTestContext(vip)
+	for i := 0; i < 2; i++ {
+		if err := plugin.OnRequest(vipCtx, vip); err != nil {
+			t.Fatalf("OnRequest() /vip request %d: %v", i+1, err)
+		}
+	}
+	if err := plugin.OnRequest(vipCtx, vip); err == nil {
+		t.Error("expected route-specific limit (2) to block the 3rd request to /vip")
+	}
+
+	other := httptest.NewRequest("GET", "/global-only", nil)
+	otherCtx := createTestContext(other)
+	for i := 0; i < 3; i++ {
+		if err := plugin.OnRequest(otherCtx, other); err != nil {
+			t.Fatalf("OnRequest() /global-only request %d: %v", i+1, err)
+		}
+	}
+}
+
+func TestRateLimit_LongestRoutePrefixWins(t *testing.T) {
+	plugin := New()
+	app := defaults.Default()
+	cfg := &config.Config{
+		Routes: []route.Route{
+			{
+				Path: "/api",
+				RateLimit: route.RateLimit{
+					Enable:    true,
+					Algorithm: "fixed-window",
+					Storage:   "memory",
+					KeyType:   "ip",
+					Limit:     50,
+					Window:    60,
+				},
+			},
+			{
+				Path: "/api/v1",
+				RateLimit: route.RateLimit{
+					Enable:    true,
+					Algorithm: "fixed-window",
+					Storage:   "memory",
+					KeyType:   "ip",
+					Limit:     2,
+					Window:    60,
+				},
+			},
+		},
+	}
+
+	if err := plugin.Prepare(app, cfg); err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	// /api/v1/foo must use /api/v1 (limit 2), not the looser /api rule.
+	v1 := httptest.NewRequest("GET", "/api/v1/foo", nil)
+	v1Ctx := createTestContext(v1)
+	for i := 0; i < 2; i++ {
+		if err := plugin.OnRequest(v1Ctx, v1); err != nil {
+			t.Fatalf("OnRequest() /api/v1/foo request %d: %v", i+1, err)
+		}
+	}
+	if err := plugin.OnRequest(v1Ctx, v1); err == nil {
+		t.Error("expected /api/v1 rule to block the 3rd request to /api/v1/foo")
+	}
+
+	// /api/other matches /api only (not /api/v1).
+	apiOther := httptest.NewRequest("GET", "/api/other", nil)
+	apiOtherCtx := createTestContext(apiOther)
+	for i := 0; i < 3; i++ {
+		if err := plugin.OnRequest(apiOtherCtx, apiOther); err != nil {
+			t.Fatalf("OnRequest() /api/other request %d: %v", i+1, err)
+		}
+	}
+}
+
+func TestRateLimit_ExceededCustomMessageAndHeaders(t *testing.T) {
+	plugin := New()
+	app := defaults.Default()
+	cfg := &config.Config{
+		RateLimit: route.RateLimit{
+			Enable:    true,
+			Algorithm: "fixed-window",
+			Storage:   "memory",
+			KeyType:   "ip",
+			Limit:     1,
+			Window:    60,
+			Message:   "custom too many",
+			Headers: map[string]string{
+				"X-Rate-Policy": "test",
+			},
+		},
+	}
+
+	if err := plugin.Prepare(app, cfg); err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	zw := &testZooxResponseWriter{ResponseRecorder: rec}
+	req := httptest.NewRequest("GET", "/test", nil)
+	ctx := createTestContextWithWriter(req, zw)
+
+	if err := plugin.OnRequest(ctx, req); err != nil {
+		t.Fatalf("first OnRequest: %v", err)
+	}
+	err := plugin.OnRequest(ctx, req)
+	if err == nil {
+		t.Fatal("expected second request to be rate limited")
+	}
+
+	var he *proxy.HTTPError
+	if !errors.As(err, &he) {
+		t.Fatalf("expected *proxy.HTTPError, got %T", err)
+	}
+	if he.Status() != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want %d", he.Status(), http.StatusTooManyRequests)
+	}
+	if he.Error() != "custom too many" {
+		t.Errorf("message = %q, want %q", he.Error(), "custom too many")
+	}
+
+	if got := rec.Header().Get("X-RateLimit-Limit"); got != "1" {
+		t.Errorf("X-RateLimit-Limit = %q, want %q", got, "1")
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429 response")
+	}
+	if rec.Header().Get("X-Rate-Policy") != "test" {
+		t.Errorf("custom header X-Rate-Policy = %q, want %q", rec.Header().Get("X-Rate-Policy"), "test")
 	}
 }

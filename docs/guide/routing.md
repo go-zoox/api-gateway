@@ -225,4 +225,4 @@ See [Examples](/guide/examples) for more routing examples.
 
 - [Configuration](/guide/configuration) - Complete configuration reference
 - [Health Check](/guide/health-check) - Configure health checks for routes
-- [Plugins](/guide/plugins) - Extend routing with plugins
+- [Plugins](/guide/plugins/) - Extend routing with plugins

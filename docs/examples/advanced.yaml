@@ -12,11 +12,10 @@ cache:
   db: 0
   prefix: "api-gateway:"
 
-# Global rate limit configuration
+# Global rate limit configuration (omit storage — uses Redis from `cache` above)
 rate_limit:
   enable: true
   algorithm: token-bucket
-  storage: redis
   key_type: ip
   limit: 100
   window: 60
@@ -46,7 +45,6 @@ routes:
     rate_limit:
       enable: true
       algorithm: token-bucket
-      storage: memory
       key_type: user
       limit: 10
       window: 60
@@ -84,7 +82,6 @@ routes:
     rate_limit:
       enable: true
       algorithm: leaky-bucket
-      storage: redis
       key_type: apikey
       limit: 50
       window: 60

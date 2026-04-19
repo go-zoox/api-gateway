@@ -212,4 +212,4 @@ For load balancing configuration, see [Load Balancing](/guide/load-balancing) gu
 - [Routing](/guide/routing) - Learn about routing and path matching
 - [Load Balancing](/guide/load-balancing) - Configure load balancing
 - [Health Check](/guide/health-check) - Configure health checks
-- [Plugins](/guide/plugins) - Extend functionality with plugins
+- [Plugins](/guide/plugins/) - Extend functionality with plugins

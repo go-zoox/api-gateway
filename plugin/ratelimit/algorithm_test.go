@@ -2,21 +2,52 @@ package ratelimit
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
+
+var errMockStateMissing = errors.New("mock: state missing")
 
 // mockStorage is a simple in-memory storage for testing
 type mockStorage struct {
 	counts map[string]int64
 	resets map[string]time.Time
+	states map[string][]byte // algorithm JSON: kind:key -> payload
 }
 
 func newMockStorage() *mockStorage {
 	return &mockStorage{
 		counts: make(map[string]int64),
 		resets: make(map[string]time.Time),
+		states: make(map[string][]byte),
 	}
+}
+
+func mockStateKey(kind, key string) string {
+	return kind + ":" + key
+}
+
+func (m *mockStorage) LoadState(ctx context.Context, kind, key string, dest interface{}) error {
+	sk := mockStateKey(kind, key)
+	raw, ok := m.states[sk]
+	if !ok {
+		return errMockStateMissing
+	}
+	return json.Unmarshal(raw, dest)
+}
+
+func (m *mockStorage) SaveState(ctx context.Context, kind, key string, src interface{}, ttl time.Duration) error {
+	raw, err := json.Marshal(src)
+	if err != nil {
+		return err
+	}
+	if m.states == nil {
+		m.states = make(map[string][]byte)
+	}
+	m.states[mockStateKey(kind, key)] = raw
+	return nil
 }
 
 func (m *mockStorage) Allow(ctx context.Context, key string, limit int64, window time.Duration) (bool, int64, time.Time, error) {
@@ -50,6 +81,8 @@ func (m *mockStorage) Allow(ctx context.Context, key string, limit int64, window
 func (m *mockStorage) Reset(ctx context.Context, key string) error {
 	delete(m.counts, key)
 	delete(m.resets, key)
+	delete(m.states, mockStateKey("tb", key))
+	delete(m.states, mockStateKey("lb", key))
 	return nil
 }
 
@@ -168,11 +201,69 @@ func TestLeakyBucketAlgorithm(t *testing.T) {
 	}
 }
 
+func TestTokenBucketAlgorithm_SharesStorageAcrossInstances(t *testing.T) {
+	ctx := context.Background()
+	storage := newTestCacheStorage()
+	defer storage.Close()
+
+	key := "same-client"
+	limit := int64(5)
+	window := time.Second
+	burst := int64(2)
+
+	a1 := &TokenBucketAlgorithm{}
+	for i := int64(0); i < 2; i++ {
+		allowed, _, _, err := a1.Allow(ctx, storage, key, limit, window, burst)
+		if err != nil {
+			t.Fatalf("Allow %d: %v", i, err)
+		}
+		if !allowed {
+			t.Fatalf("request %d should be allowed", i)
+		}
+	}
+
+	a2 := &TokenBucketAlgorithm{}
+	allowed, _, _, err := a2.Allow(ctx, storage, key, limit, window, burst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Fatal("third request should be denied (capacity 2 shared via cache)")
+	}
+}
+
+func TestLeakyBucketAlgorithm_SharesStorageAcrossInstances(t *testing.T) {
+	ctx := context.Background()
+	storage := newTestCacheStorage()
+	defer storage.Close()
+
+	key := "leaky-client"
+	limit := int64(2)
+	window := time.Second
+
+	a1 := &LeakyBucketAlgorithm{}
+	for i := 0; i < 2; i++ {
+		allowed, _, _, err := a1.Allow(ctx, storage, key, limit, window, 0)
+		if err != nil || !allowed {
+			t.Fatalf("request %d: allowed=%v err=%v", i, allowed, err)
+		}
+	}
+
+	a2 := &LeakyBucketAlgorithm{}
+	allowed, _, _, err := a2.Allow(ctx, storage, key, limit, window, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allowed {
+		t.Fatal("third request should be denied (shared leaky state)")
+	}
+}
+
 func TestAlgorithmFactory(t *testing.T) {
 	factory := &AlgorithmFactory{}
 
 	tests := []struct {
-		name        string
+		name          string
 		algorithmType string
 	}{
 		{"Token bucket", "token-bucket"},

@@ -3,6 +3,7 @@ package ratelimit
 import (
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/go-zoox/zoox"
@@ -140,10 +141,10 @@ func TestExtractorFactory(t *testing.T) {
 	factory := &ExtractorFactory{}
 
 	tests := []struct {
-		name     string
-		keyType  string
+		name      string
+		keyType   string
 		keyHeader string
-		wantType string
+		wantType  string
 	}{
 		{"IP extractor", "ip", "", "IPExtractor"},
 		{"User extractor", "user", "", "UserExtractor"},
@@ -161,5 +162,118 @@ func TestExtractorFactory(t *testing.T) {
 			// Basic type check
 			_ = extractor
 		})
+	}
+}
+
+func TestExtractorFactory_HeaderWithoutNameUsesIPExtractor(t *testing.T) {
+	f := &ExtractorFactory{}
+	ext := f.NewExtractor("header", "")
+	if reflect.TypeOf(ext) != reflect.TypeOf(&IPExtractor{}) {
+		t.Fatalf("got %T, want *IPExtractor", ext)
+	}
+}
+
+func TestUserExtractor(t *testing.T) {
+	e := &UserExtractor{}
+	ctx := &zoox.Context{}
+
+	t.Run("Bearer token", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("Authorization", "Bearer secret-token")
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "user:secret-token" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+
+	t.Run("case insensitive bearer", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("Authorization", "BeArEr lower-check")
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "user:lower-check" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+
+	t.Run("X-User-ID", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-User-ID", "uid-42")
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "user:uid-42" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+
+	t.Run("fallback IP", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "192.0.2.50:9999"
+		key, err := e.Extract(ctx, req)
+		if err != nil || key != "ip:192.0.2.50" {
+			t.Fatalf("got %q err=%v", key, err)
+		}
+	})
+}
+
+func TestAPIKeyExtractor_FallbackToIP(t *testing.T) {
+	e := &APIKeyExtractor{}
+	ctx := &zoox.Context{}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.0.2.88:1234"
+	key, err := e.Extract(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ip:192.0.2.88"; key != want {
+		t.Fatalf("got %q want %q", key, want)
+	}
+}
+
+func TestHeaderExtractor_FallbackToIP(t *testing.T) {
+	e := &HeaderExtractor{HeaderName: "X-Tenant"}
+	ctx := &zoox.Context{}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "[2001:db8::1]:443"
+	key, err := e.Extract(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "ip:2001:db8::1" {
+		t.Fatalf("got %q", key)
+	}
+}
+
+func TestIPExtractor_RemoteAddrIPv6(t *testing.T) {
+	e := &IPExtractor{}
+	ctx := &zoox.Context{}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "[2001:db8::1]:8443"
+	key, err := e.Extract(ctx, req)
+	if err != nil || key != "ip:2001:db8::1" {
+		t.Fatalf("got %q err=%v", key, err)
+	}
+}
+
+func TestIPExtractor_RemoteAddrWithoutPort(t *testing.T) {
+	e := &IPExtractor{}
+	ctx := &zoox.Context{}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.0.2.77"
+	key, err := e.Extract(ctx, req)
+	if err != nil || key != "ip:192.0.2.77" {
+		t.Fatalf("got %q err=%v", key, err)
+	}
+}
+
+func TestIPExtractor_UnknownWhenNoRemote(t *testing.T) {
+	e := &IPExtractor{}
+	ctx := &zoox.Context{}
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = ""
+	key, err := e.Extract(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if key != "ip:unknown" {
+		t.Fatalf("got %q", key)
 	}
 }
