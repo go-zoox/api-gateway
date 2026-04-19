@@ -421,4 +421,4 @@ services:
 
 - [配置](/zh/guide/configuration) - 了解所有配置选项
 - [路由](/zh/guide/routing) - 高级路由模式
-- [插件](/zh/guide/plugins) - 使用插件扩展功能
+- [插件](/zh/guide/plugins/) - 使用插件扩展功能

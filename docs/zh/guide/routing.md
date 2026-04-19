@@ -225,4 +225,4 @@ routes:
 
 - [配置](/zh/guide/configuration) - 完整的配置参考
 - [健康检查](/zh/guide/health-check) - 为路由配置健康检查
-- [插件](/zh/guide/plugins) - 使用插件扩展路由
+- [插件](/zh/guide/plugins/) - 使用插件扩展路由

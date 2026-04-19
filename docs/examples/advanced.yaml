@@ -12,6 +12,16 @@ cache:
   db: 0
   prefix: "api-gateway:"
 
+# Global rate limit (counters use Redis via top-level `cache` above)
+rate_limit:
+  enable: true
+  algorithm: token-bucket
+  key_type: ip
+  limit: 100
+  window: 60
+  burst: 20
+  message: "Too Many Requests"
+
 healthcheck:
   outer:
     enable: true
@@ -31,6 +41,14 @@ backend:
 routes:
   - name: user-service
     path: /users
+    # Route-specific rate limit (overrides global)
+    rate_limit:
+      enable: true
+      algorithm: token-bucket
+      key_type: user
+      limit: 10
+      window: 60
+      burst: 5
     backend:
       service:
         protocol: https
@@ -60,6 +78,13 @@ routes:
 
   - name: product-service
     path: /products
+    # Route-specific rate limit with API key
+    rate_limit:
+      enable: true
+      algorithm: leaky-bucket
+      key_type: apikey
+      limit: 50
+      window: 60
     backend:
       service:
         protocol: https

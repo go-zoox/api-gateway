@@ -151,5 +151,5 @@ type BaseURI struct {
 
 ## 另请参阅
 
-- [插件指南](/zh/guide/plugins) - 插件开发指南
+- [插件指南](/zh/guide/plugins/) — 插件概览与内置插件说明
 - [配置 API](/zh/api/config) - 配置 API

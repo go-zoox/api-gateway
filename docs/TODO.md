@@ -19,16 +19,16 @@ This document lists the missing features and development plan for API Gateway. T
 ---
 
 ### 2. Rate Limiting & Throttling
-**Status**: 🟡 Partially Implemented (dependency exists but not integrated)  
-**Description**: Rate limiting plugin examples are mentioned in documentation, but no actual implementation found in the codebase.
+**Status**: 🟢 Implemented  
+**Description**: Rate limiting plugin is fully implemented with support for multiple algorithms and key types (backed by `Application.Cache()`).
 
 **Requirements**:
-- [ ] Rate limiting based on IP, user, API Key
-- [ ] Token bucket/leaky bucket algorithm implementation
-- [ ] Distributed rate limiting (based on Redis)
-- [ ] Rate limiting policy configuration (requests per second, requests per minute, etc.)
-- [ ] Rate limit response (429 Too Many Requests)
-- [ ] Rate limiting plugin implementation
+- [x] Rate limiting based on IP, user, API Key
+- [x] Token bucket/leaky bucket algorithm implementation
+- [x] Distributed rate limiting (based on Redis)
+- [x] Rate limiting policy configuration (requests per second, requests per minute, etc.)
+- [x] Rate limit response (429 Too Many Requests)
+- [x] Rate limiting plugin implementation
 
 **Impact**: Cannot prevent API abuse and DDoS attacks
 

@@ -199,4 +199,4 @@ routes:                  # 路由定义
 - [路由](/zh/guide/routing) - 了解路由和路径匹配
 - [负载均衡](/zh/guide/load-balancing) - 配置负载均衡
 - [健康检查](/zh/guide/health-check) - 配置健康检查
-- [插件](/zh/guide/plugins) - 使用插件扩展功能
+- [插件](/zh/guide/plugins/) - 使用插件扩展功能

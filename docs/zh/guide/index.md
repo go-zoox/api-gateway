@@ -21,7 +21,7 @@ API Gateway 是一个使用 Go 构建的简单、强大、灵活的自托管 API
 - [配置](/zh/guide/configuration) - 完整的配置参考
 - [路由](/zh/guide/routing) - 了解路由和路径匹配
 - [负载均衡](/zh/guide/load-balancing) - 负载均衡算法和配置
-- [插件](/zh/guide/plugins) - 插件系统和开发
+- [插件](/zh/guide/plugins/) — 插件说明（概览、Base URI、限流）
 - [健康检查](/zh/guide/health-check) - 健康检查配置
 - [示例](/zh/guide/examples) - 实际示例和用例
 - [TODO 列表](/zh/TODO) - 开发路线图和计划功能

@@ -46,7 +46,7 @@ See `.github/workflows/docs.yml` for the deployment configuration.
 
 - `index.md` - Homepage (English)
 - `zh/index.md` - Homepage (Chinese)
-- `guide/` - Guide documentation
+- `guide/` - Guide documentation (`guide/plugins/` — overview plus one page per built-in plugin)
 - `api/` - API reference
 - `examples/` - Example configurations
 - `.vitepress/` - VitePress configuration

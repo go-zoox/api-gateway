@@ -421,4 +421,4 @@ services:
 
 - [Configuration](/guide/configuration) - Learn about all configuration options
 - [Routing](/guide/routing) - Advanced routing patterns
-- [Plugins](/guide/plugins) - Extend functionality with plugins
+- [Plugins](/guide/plugins/) - Extend functionality with plugins

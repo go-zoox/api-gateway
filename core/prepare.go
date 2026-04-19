@@ -3,6 +3,7 @@ package core
 import (
 	"github.com/go-zoox/api-gateway/core/loadbalancer"
 	"github.com/go-zoox/api-gateway/plugin/baseuri"
+	"github.com/go-zoox/api-gateway/plugin/ratelimit"
 	"github.com/go-zoox/kv"
 	"github.com/go-zoox/kv/redis"
 )
@@ -102,5 +103,27 @@ func (c *core) preparePluginsBuildin() error {
 		})
 	}
 
+	// rate limit
+	if c.shouldEnableRateLimit() {
+		c.plugins = append(c.plugins, ratelimit.New())
+	}
+
 	return nil
+}
+
+// shouldEnableRateLimit checks if rate limiting should be enabled
+func (c *core) shouldEnableRateLimit() bool {
+	// Check global rate limit
+	if c.cfg.RateLimit.Enable {
+		return true
+	}
+
+	// Check route-specific rate limits
+	for _, route := range c.cfg.Routes {
+		if route.RateLimit.Enable {
+			return true
+		}
+	}
+
+	return false
 }

@@ -63,8 +63,16 @@ export default defineConfig({
             {
               text: 'Advanced',
               items: [
-                { text: 'Plugins', link: '/guide/plugins' },
                 { text: 'Examples', link: '/guide/examples' }
+              ]
+            },
+            {
+              text: 'Plugins',
+              collapsed: false,
+              items: [
+                { text: 'Overview', link: '/guide/plugins/' },
+                { text: 'Base URI', link: '/guide/plugins/base-uri' },
+                { text: 'Rate limiting', link: '/guide/plugins/rate-limit' }
               ]
             },
             {
@@ -125,8 +133,16 @@ export default defineConfig({
             {
               text: '高级',
               items: [
-                { text: '插件系统', link: '/zh/guide/plugins' },
                 { text: '使用示例', link: '/zh/guide/examples' }
+              ]
+            },
+            {
+              text: '插件',
+              collapsed: false,
+              items: [
+                { text: '概览', link: '/zh/guide/plugins/' },
+                { text: 'Base URI', link: '/zh/guide/plugins/base-uri' },
+                { text: '限流', link: '/zh/guide/plugins/rate-limit' }
               ]
             },
             {
