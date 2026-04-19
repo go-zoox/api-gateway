@@ -8,6 +8,7 @@ API Gateway exposes a dedicated **plugins** area: each built-in capability lives
 | --- | --- | --- |
 | [Base URI](./base-uri) | `plugin/baseuri` | YAML `baseuri` is non-empty |
 | [Rate limiting](./rate-limit) | `plugin/ratelimit` | Global `rate_limit.enable` or any route has `rate_limit.enable` |
+| [JSON audit](./json-audit) | `plugin/jsonaudit` | Top-level `json_audit.enable` is true |
 
 ## Plugin interface
 
@@ -87,5 +88,6 @@ func (p *MyPlugin) OnResponse(ctx *zoox.Context, res *http.Response) error {
 
 - [Base URI](./base-uri) — Strip or require a URL prefix for all routes.
 - [Rate limiting](./rate-limit) — Token bucket, leaky bucket, fixed window; memory or Redis.
+- [JSON audit](./json-audit) — Log JSON-like responses with paired request bodies for audits.
 - [Configuration](/guide/configuration) — YAML structure and globals.
 - [API reference](/api/plugin) — `plugin` package overview.

@@ -3,6 +3,7 @@ package core
 import (
 	"github.com/go-zoox/api-gateway/core/loadbalancer"
 	"github.com/go-zoox/api-gateway/plugin/baseuri"
+	"github.com/go-zoox/api-gateway/plugin/jsonaudit"
 	"github.com/go-zoox/api-gateway/plugin/ratelimit"
 	"github.com/go-zoox/kv"
 	"github.com/go-zoox/kv/redis"
@@ -106,6 +107,11 @@ func (c *core) preparePluginsBuildin() error {
 	// rate limit
 	if c.shouldEnableRateLimit() {
 		c.plugins = append(c.plugins, ratelimit.New())
+	}
+
+	// JSON audit (response JSON-like → log request + response)
+	if c.cfg.JSONAudit.Enable {
+		c.plugins = append(c.plugins, jsonaudit.New())
 	}
 
 	return nil

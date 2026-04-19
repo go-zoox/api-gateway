@@ -19,7 +19,28 @@ type Config struct {
 	//
 	RateLimit RateLimit `config:"rate_limit"`
 	//
+	JSONAudit JSONAudit `config:"json_audit"`
+	//
 	// Match func(path string) (r *route.Route, err error)
+}
+
+// JSONAudit is the json_audit YAML section (also used by plugin/jsonaudit).
+type JSONAudit struct {
+	Enable bool `config:"enable"`
+	// MaxBodyBytes caps captured request/response bodies (default 1MiB).
+	MaxBodyBytes int64 `config:"max_body_bytes,default=1048576"`
+	// SampleRate is the fraction of requests to audit (0.0–1.0]. Values <=0 are treated as 1.0.
+	SampleRate float64 `config:"sample_rate,default=1"`
+	// SniffJSON treats bodies as JSON when json.Valid succeeds if Content-Type is not JSON.
+	SniffJSON bool `config:"sniff_json,default=true"`
+	// DecompressGzip attempts gzip decompression for logging when Content-Encoding is gzip.
+	DecompressGzip bool `config:"decompress_gzip,default=true"`
+	// IncludePaths limits auditing to paths with these prefixes (empty = all, before excludes).
+	IncludePaths []string `config:"include_paths"`
+	// ExcludePaths skips paths with any of these prefixes.
+	ExcludePaths []string `config:"exclude_paths"`
+	// RedactKeys lists JSON object keys (any depth) to mask; empty uses built-in sensitive keys.
+	RedactKeys []string `config:"redact_keys"`
 }
 
 type HealthCheck struct {

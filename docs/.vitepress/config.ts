@@ -72,7 +72,8 @@ export default defineConfig({
               items: [
                 { text: 'Overview', link: '/guide/plugins/' },
                 { text: 'Base URI', link: '/guide/plugins/base-uri' },
-                { text: 'Rate limiting', link: '/guide/plugins/rate-limit' }
+                { text: 'Rate limiting', link: '/guide/plugins/rate-limit' },
+                { text: 'JSON audit', link: '/guide/plugins/json-audit' }
               ]
             },
             {
@@ -142,7 +143,8 @@ export default defineConfig({
               items: [
                 { text: '概览', link: '/zh/guide/plugins/' },
                 { text: 'Base URI', link: '/zh/guide/plugins/base-uri' },
-                { text: '限流', link: '/zh/guide/plugins/rate-limit' }
+                { text: '限流', link: '/zh/guide/plugins/rate-limit' },
+                { text: 'JSON 审计', link: '/zh/guide/plugins/json-audit' }
               ]
             },
             {

@@ -141,6 +141,21 @@ type BaseURI struct {
 
 This plugin filters requests by base URI prefix.
 
+### JSON audit plugin
+
+When **`json_audit.enable`** is **`true`**, the JSON audit plugin is registered:
+
+```go
+// github.com/go-zoox/api-gateway/plugin/jsonaudit
+type JSONAudit struct {
+    plugin.Plugin
+}
+```
+
+The **`json_audit`** keys map to **`config.JSONAudit`**; **`plugin/jsonaudit`** reads them from **`cfg.JSONAudit`** inside **`Prepare`** (same struct type via **`config`** import — no duplicate config type in the plugin).
+
+It logs paired request/response bodies when the upstream response is JSON-like. See the [JSON audit plugin guide](/guide/plugins/json-audit).
+
 ## Best Practices
 
 1. **Error Handling**: Return errors to stop processing
