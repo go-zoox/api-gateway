@@ -1,4 +1,4 @@
 package api
 
 // Version is the version of api-gateway
-var Version = "1.4.5"
+var Version = "1.6.0"
