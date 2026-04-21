@@ -2,7 +2,7 @@
 
 Package: `github.com/go-zoox/api-gateway/plugin/jsonaudit`
 
-The gateway registers the JSON audit plugin when **top-level** **`json_audit.enable`** is **`true`** **or** **any route** sets **`json_audit.enable`** (same idea as rate limiting). It buffers the **incoming request body** (bounded) before the upstream call, then after the upstream responds checks whether the **response looks like JSON**. Only then it emits **one structured JSON log line** containing both request and response payloads (after redaction), suitable for compliance / security audits.
+The gateway registers the JSON audit plugin when **top-level** **`json_audit.enable`** is **`true`** **or** **any route** sets **`json_audit.enable`** (same idea as rate limiting). It buffers the **incoming request body** (bounded) before the upstream call, then after the upstream responds checks whether the **response looks like JSON**. Only then it emits **one structured JSON log line** containing both request and response payloads (masked or plain depending on `redact` settings and provider defaults), suitable for compliance / security audits.
 
 ## Behaviour summary
 
@@ -48,7 +48,7 @@ YAML keys use **snake_case**.
 <td valign="top"><code>output</code></td>
 <td valign="top">No</td>
 <td valign="top"><code>provider: console</code></td>
-<td valign="top">Nested block: <strong><code>provider</code></strong> — <code>console</code> (default, app logger), <code>file</code>, <code>http</code>, or <code>database</code> (<code>webhook</code> / <code>endpoint</code> / <code>api</code> mean http; <code>db</code> / <code>sql</code> mean database). For <code>file</code>, set <strong><code>file.path</code></strong>. For <code>http</code>, set <strong><code>http</code></strong> (<code>url</code> required; optional <code>method</code>, <code>headers</code>, <code>timeout_seconds</code>). For <code>database</code>, set <strong><code>database</code></strong> (<code>engine</code>: postgres/mysql/sqlite, <code>dsn</code> required). Database sink connects via <code>github.com/go-zoox/gormx</code> and runs startup auto-migrate for the audit table. HTTP/database failures fall back to logging the same line at <strong>info</strong> on the console sink.</td>
+<td valign="top">Nested block: <strong><code>provider</code></strong> — <code>console</code> (default), <code>file</code>, <code>http</code>, or <code>database</code> (<code>webhook</code> / <code>endpoint</code> / <code>api</code> map to http; <code>db</code> / <code>sql</code> map to database). For <code>file</code>, set <strong><code>file.path</code></strong>. For <code>http</code>, set <strong><code>http</code></strong> (<code>url</code> required; optional <code>method</code>, <code>headers</code>, <code>timeout_seconds</code>). For <code>database</code>, configure dedicated <strong><code>output.database</code></strong> (DSN or structured fields), no top-level fallback. URL DSN (<code>postgres://</code>, <code>mysql://</code>, <code>sqlite:///</code>) can omit <code>engine</code>; structured fields or non-URL DSN should set <code>engine</code>. If <code>provider=database</code> but <code>output.database</code> is missing, startup panics. Database sink uses <code>github.com/go-zoox/gormx</code> and runs startup auto-migrate. HTTP/database failures also emit the same audit line via console info.</td>
 </tr>
 <tr>
 <td valign="top"><code>max_body_bytes</code></td>
@@ -89,8 +89,8 @@ YAML keys use **snake_case**.
 <tr>
 <td valign="top"><code>redact</code></td>
 <td valign="top">No</td>
-<td valign="top"><code>enable</code> on*</td>
-<td valign="top">Nested block: <strong><code>enable</code></strong> — redaction on/off (omit = <strong>on</strong>). <strong><code>keys</code></strong> — JSON/query keys to mask; empty uses built-ins when enabled. When <code>enable: false</code>, headers, query, and JSON bodies are logged <strong>without</strong> masking (including <code>Authorization</code>).</td>
+<td valign="top"><code>enable</code> depends on provider*</td>
+<td valign="top">Nested block: <strong><code>enable</code></strong> — redaction on/off (explicit value wins). If omitted, redaction defaults to <strong>on only for <code>provider=console</code></strong>; for <code>file/http/database</code> it defaults to off. <strong><code>keys</code></strong> — JSON/query keys to mask; empty uses built-ins when enabled. When <code>enable: false</code>, headers, query, and JSON bodies are logged without masking (including <code>Authorization</code>).</td>
 </tr>
 </tbody>
 </table>
@@ -98,7 +98,7 @@ YAML keys use **snake_case**.
 
 \*The plugin registers when global **`json_audit.enable`** is true or any route enables **`json_audit`**.
 
-\*\*For **`redact.enable`**, omitting the field means redaction stays **on** (same as **`true`**).
+\*\*`redact.enable` explicit value wins; when omitted, only **`output.provider=console`** defaults redaction to on.
 
 ### Detailed field notes
 
@@ -122,9 +122,9 @@ json_audit:
 | **`console`** (default) | Emit through the app logger at **info** (same pipeline as other gateway logs). |
 | **`file`** | Append to **`output.file.path`** (newline after each JSON object). |
 | **`http`** | **`POST`** (unless overridden) the JSON bytes to **`output.http.url`** with **`Content-Type: application/json`**. |
-| **`database`** | Insert one row into the auto-migrated audit table using **`output.database.engine`** + **`output.database.dsn`** (via `gormx`). |
+| **`database`** | Insert one structured row into the auto-migrated audit table using **`output.database`** (DSN or structured fields, via `gormx`). |
 
-Synonyms such as **`webhook`**, **`endpoint`**, or **`api`** for **`provider`** are treated like **`http`**; **`db`** / **`sql`** are treated like **`database`**. If **`provider`** is **`file`**, **`http`**, or **`database`**, the corresponding required keys are validated at startup: **`file.path`**, **`http.url`**, or database fields. For **`database`**, you can use either **`output.database.dsn`** or structured fields (**`engine`**, **`host`**, **`port`**, **`username`**, **`password`**, **`db`**). Structured fields have higher priority than `dsn`. If `output.database` is omitted, the plugin can fall back to top-level **`database`** config. The plugin opens the connection with `gormx` and runs `AutoMigrate` during startup. On delivery/write failures, the same line is **also** logged at **info** on the console sink so audits are not silently dropped.
+Synonyms such as **`webhook`**, **`endpoint`**, or **`api`** for **`provider`** are treated like **`http`**; **`db`** / **`sql`** are treated like **`database`**. If **`provider`** is **`file`**, **`http`**, or **`database`**, startup validates required keys: **`file.path`**, **`http.url`**, or database config. For **`database`**, use either **`output.database.dsn`** or structured fields (**`engine`**, **`host`**, **`port`**, **`username`**, **`password`**, **`db`**). Structured fields win over `dsn`. URL DSN (`postgres://...`, `mysql://...`, `sqlite:///...`) can infer `engine`; non-URL DSN usually needs explicit `engine`. Database config is read only from **`output.database`** (no top-level fallback). If **`provider: database`** is selected without any database config, startup panics. The plugin connects with `gormx`, runs `AutoMigrate`, and stores structured columns (see below). On delivery/write failures, the same line is also logged at console info so audits are not silently dropped.
 
 Default (console) — omit **`output`** or set **`provider`** only:
 
@@ -169,7 +169,6 @@ json_audit:
   output:
     provider: database
     database:
-      engine: postgres
       dsn: postgres://postgres:secret@127.0.0.1:5432/apigw_audit?sslmode=disable
 ```
 
@@ -179,7 +178,6 @@ json_audit:
   output:
     provider: database
     database:
-      engine: mysql
       dsn: mysql://root:secret@127.0.0.1:3306/apigw_audit?charset=utf8mb4&parseTime=True&loc=Local
 ```
 
@@ -189,28 +187,60 @@ json_audit:
   output:
     provider: database
     database:
-      engine: sqlite
-      dsn: /var/lib/api-gateway/json-audit.sqlite
+      dsn: sqlite:///var/lib/api-gateway/json-audit.sqlite
 ```
 
-`postgres://...` and `mysql://...` URL-style DSNs are recommended. Legacy DSN forms remain compatible.
+Use URL DSN (`postgres://...`, `mysql://...`, `sqlite:///...`) when possible; URL DSN can omit `engine`.
 
-Use top-level `database` as shared fallback (compatible with `conf/config.yaml`):
+Structured database fields (without `dsn`):
 
 ```yaml
-database:
-  engine: postgres
-  host: postgres
-  port: 5432
-  username: postgres
-  password: postgres
-  db: api-gateway
-
 json_audit:
   enable: true
   output:
     provider: database
+    database:
+      engine: postgres
+      host: 127.0.0.1
+      port: 5432
+      username: postgres
+      password: secret
+      db: apigw_audit
 ```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: mysql
+      host: 127.0.0.1
+      port: 3306
+      username: root
+      password: secret
+      db: apigw_audit
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: sqlite
+      db: /var/lib/api-gateway/json-audit.sqlite
+```
+
+> Note: `json_audit.output.provider: database` must configure connection info inside `json_audit.output.database`; top-level `database` is not used as fallback.
+
+Database table (`json_audit_records`) stores structured columns and extracts auth metadata:
+
+- `username`, `password`: from `Authorization: Basic ...` when decodable.
+- `token`: from `Authorization: Bearer ...`.
+- `authorization`: raw `Authorization` header value.
+- `x_api_key`: from `X-API-Key`.
+- `client_id`, `client_secret`: prefer `X-Client-ID` / `X-Client-Secret`; fallback to query `client_id` / `client_secret` only when header is missing; body is not used.
 
 Route-only file sink (this route overrides global **`output`** for matching paths):
 
@@ -285,7 +315,7 @@ json_audit:
 
 #### `redact` (nested)
 
-**`redact.enable`** turns masking on or off. **Omitted** means **on** (default). When **`false`**, audit records include **plaintext** values for sensitive **headers** (e.g. **`Authorization`**), **query** parameters, and **JSON** fields — use only in locked-down environments.
+**`redact.enable`** turns masking on or off (explicit value wins). If omitted, masking defaults to on only for **`provider=console`**; for `file/http/database` it defaults to off. When **`false`**, audit records include plaintext sensitive headers/query/JSON values — use only in locked-down environments.
 
 **`redact.keys`** lists **case-insensitive** JSON object keys and query parameter names to replace with **`"[REDACTED]"`**. When redaction is **on** and **`keys`** is **empty**, built-in defaults apply (`password`, `token`, …).
 
@@ -342,13 +372,13 @@ Skipped requests carry no audit payload for that hop.
 
 ## Redaction
 
-When **`json_audit.redact.enable`** is **not `false`** (the default), bodies are parsed as JSON when possible; object keys matched (case-insensitive, any nesting depth) are replaced by **`"[REDACTED]"`** in the logged structures. If **`redact.keys`** is **empty**, the plugin uses built-in defaults, including:
+When masking is enabled (`redact.enable=true`, or omitted with `provider=console`), bodies are parsed as JSON when possible; matched object keys (case-insensitive, any nesting depth) are replaced by **`"[REDACTED]"`** in the logged structures. If **`redact.keys`** is **empty**, the plugin uses built-in defaults, including:
 
 `password`, `passwd`, `secret`, `token`, `authorization`, `api_key`, `apikey`, `access_token`, `refresh_token`.
 
-Sensitive **HTTP headers** (`Authorization`, `Cookie`, …) are replaced with **`["[REDACTED]"]`** when redaction is on. **Query** parameter names matching **`redact.keys`** (or built-ins) are masked.
+Sensitive **HTTP headers** (`Authorization`, `Cookie`, …) are replaced with **`["[REDACTED]"]`** when masking is on. **Query** parameter names matching **`redact.keys`** (or built-ins) are masked.
 
-Non-JSON bodies are still logged under **`request.body`** / **`response.body`**: valid JSON becomes a parsed tree after key redaction when enabled; otherwise a **string** fragment is stored. With **`redact.enable: false`**, parsed JSON and headers are logged **without** masking.
+Non-JSON bodies are still logged under **`request.body`** / **`response.body`** as string fragments. With masking off (explicit off, or omitted with non-console provider), parsed JSON and headers are logged without masking.
 
 ## Audit log schema
 
@@ -376,7 +406,7 @@ Each audit line is one JSON object. With **`output.provider: console`** (default
 | Field | Meaning |
 | --- | --- |
 | **`method`**, **`path`** | HTTP method and routed path (`ctx.Path`). |
-| **`headers`** | Request headers as **`map[string][]string`**; when redaction is on, known sensitive headers become **`["[REDACTED]"]`**; with **`redact.enable: false`**, values are copied verbatim. |
+| **`headers`** | Request headers as **`map[string][]string`**; when masking is on, known sensitive headers become **`["[REDACTED]"]`**; with masking off (explicit off or non-console default), values are copied verbatim. |
 | **`query`** | URL query (`map[string][]string`); parameter names matching **`redact.keys`** (or built-ins) are redacted when masking is on. |
 | **`params`** | Route parameters from **`ctx.Params().ToMap()`** (`map[string]any`), empty object if none. |
 | **`body`** | Request body: parsed JSON after key redaction when valid (if masking on), else raw string; with masking off, parsed JSON is unchanged. |
@@ -394,7 +424,7 @@ Collect logs with your existing pipeline (stdout, shipper, SIEM) when using **`o
 
 ### Scenario
 
-A client calls **`POST /api/v1/login`** with a JSON body that contains credentials. The upstream returns **`200`** and a JSON body that includes a session token. The gateway has **`json_audit`** enabled with default redaction keys (`password`, `token`, …).
+A client calls **`POST /api/v1/login`** with a JSON body that contains credentials. The upstream returns **`200`** and a JSON body that includes a session token. The gateway has **`json_audit`** enabled and uses default redaction keys (`password`, `token`, …) when `provider=console` (or when `redact.enable=true` is set explicitly).
 
 Auditing runs only if this request passes **path filters** and **sampling** (here we assume it does). The plugin writes **one info-level log message** whose message payload is a **single JSON object** (see implementation: `ctx.Logger.Infof("%s", …)`).
 

@@ -219,6 +219,59 @@ func TestOnRequest_RedactDisabledPlainHeaders(t *testing.T) {
 	}
 }
 
+func TestOnRequest_DefaultRedactEnabledForConsole(t *testing.T) {
+	j := New()
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable:     true,
+			SampleRate: 1,
+			Output: route.JSONAuditOutput{
+				Provider: "console",
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	ctx := testZCtx(req)
+	if err := j.OnRequest(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := ctx.Request.Context().Value(auditStateKey).(*auditState)
+	if st == nil || st.headers["Authorization"][0] != "[REDACTED]" {
+		t.Fatalf("headers: %#v", st.headers["Authorization"])
+	}
+}
+
+func TestOnRequest_DefaultRedactDisabledForNonConsole(t *testing.T) {
+	j := New()
+	if err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable:     true,
+			SampleRate: 1,
+			Output: route.JSONAuditOutput{
+				Provider: "file",
+				File: route.JSONAuditOutputFile{
+					Path: "/tmp/json-audit-test.log",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	ctx := testZCtx(req)
+	if err := j.OnRequest(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := ctx.Request.Context().Value(auditStateKey).(*auditState)
+	if st == nil || st.headers["Authorization"][0] != "Bearer secret-token" {
+		t.Fatalf("headers: %#v", st.headers["Authorization"])
+	}
+}
+
 func TestOnRequest_Success(t *testing.T) {
 	j := New()
 	if err := j.Prepare(defaults.Default(), &config.Config{JSONAudit: config.JSONAudit{Enable: true, SampleRate: 1}}); err != nil {
