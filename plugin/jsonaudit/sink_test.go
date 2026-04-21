@@ -1,6 +1,8 @@
 package jsonaudit
 
 import (
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -182,21 +184,114 @@ func TestEmitAuditLine_DatabaseSQLite(t *testing.T) {
 	}
 
 	ctx := &zoox.Context{Logger: logger.New()}
-	j.emitAuditLine(ctx, &j.globalConfig, []byte(`{"db":1}`))
+	basicHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret"))
+	j.emitAuditLine(ctx, &j.globalConfig, []byte(fmt.Sprintf(`{
+		"type":"json_audit",
+		"time":"2026-01-01T00:00:00Z",
+		"timestamp":1700000000000,
+		"method":"GET",
+		"path":"/users",
+		"remote_addr":"127.0.0.1",
+		"request_id":"req-1",
+		"user_agent":"unit-test",
+		"response_status":200,
+		"content_type":"application/json",
+		"request_truncated":false,
+		"response_truncated":false,
+		"request":{
+			"headers":{"Authorization":["%s"],"X-API-Key":["api-key-1"]},
+			"query":{"client_id":["cli_query"]},
+			"body":{"name":"alice","client_id":"cli_body","client_secret":"sec_body"}
+		},
+		"response":{"body":{"ok":true}}
+	}`, basicHeader)))
 
 	db := gormx.GetDB()
 	if db == nil {
 		t.Fatal("expected gormx db")
 	}
 	type rec struct {
-		Payload string
+		Type           string
+		Method         string
+		Path           string
+		ResponseStatus int
+		Username       string
+		Password       string
+		Authorization  string
+		XAPIKey        string
+		ClientID       string
+		ClientSecret   string
+		Request        string
+		Response       string
 	}
 	var out rec
-	if err := db.Raw("SELECT payload FROM json_audit_records ORDER BY id DESC LIMIT 1").Scan(&out).Error; err != nil {
+	if err := db.Raw("SELECT type, method, path, response_status, username, password, authorization, x_api_key, client_id, client_secret, request, response FROM json_audit_records ORDER BY id DESC LIMIT 1").Scan(&out).Error; err != nil {
 		t.Fatalf("query migrated table failed: %v", err)
 	}
-	if out.Payload != `{"db":1}` {
-		t.Fatalf("unexpected payload: %q", out.Payload)
+	if out.Type != "json_audit" || out.Method != "GET" || out.Path != "/users" || out.ResponseStatus != 200 {
+		t.Fatalf("unexpected structured fields: %+v", out)
+	}
+	if out.Username != "alice" || out.Password != "s3cret" {
+		t.Fatalf("unexpected basic auth fields: %+v", out)
+	}
+	if !strings.HasPrefix(out.Authorization, "Basic ") || out.XAPIKey != "api-key-1" {
+		t.Fatalf("unexpected authorization/api key fields: %+v", out)
+	}
+	if out.ClientID != "cli_query" || out.ClientSecret != "" {
+		t.Fatalf("unexpected client fields: %+v", out)
+	}
+	if !strings.Contains(out.Request, `"name":"alice"`) {
+		t.Fatalf("unexpected request: %q", out.Request)
+	}
+	if !strings.Contains(out.Response, `"ok":true`) {
+		t.Fatalf("unexpected response: %q", out.Response)
+	}
+}
+
+func TestExtractAuditAuthFields_BearerAndQueryClient(t *testing.T) {
+	username, password, token, clientID, clientSecret, authorization, xAPIKey := extractAuditAuthFields([]byte(`{
+		"headers":{"Authorization":["Bearer token-123"]},
+		"query":{"client_id":["q-client"],"client_secret":["q-secret"]},
+		"body":{"ignored":true}
+	}`))
+	if username != "" || password != "" {
+		t.Fatalf("unexpected basic auth: %q %q", username, password)
+	}
+	if token != "token-123" {
+		t.Fatalf("unexpected token: %q", token)
+	}
+	if authorization != "Bearer token-123" || xAPIKey != "" {
+		t.Fatalf("unexpected auth header fields: %q %q", authorization, xAPIKey)
+	}
+	if clientID != "q-client" || clientSecret != "q-secret" {
+		t.Fatalf("unexpected client auth: %q %q", clientID, clientSecret)
+	}
+}
+
+func TestExtractAuditAuthFields_ClientFromHeaders(t *testing.T) {
+	username, password, token, clientID, clientSecret, authorization, xAPIKey := extractAuditAuthFields([]byte(`{
+		"headers":{"X-Client-ID":["h-client"],"X-Client-Secret":["h-secret"]},
+		"query":{"ignored":["x"]},
+		"body":{"ignored":true}
+	}`))
+	if username != "" || password != "" || token != "" {
+		t.Fatalf("unexpected auth fields: %q %q %q", username, password, token)
+	}
+	if authorization != "" || xAPIKey != "" {
+		t.Fatalf("unexpected header fields: %q %q", authorization, xAPIKey)
+	}
+	if clientID != "h-client" || clientSecret != "h-secret" {
+		t.Fatalf("unexpected header client auth: %q %q", clientID, clientSecret)
+	}
+}
+
+func TestExtractAuditAuthFields_ClientHeaderHasPriorityOverQuery(t *testing.T) {
+	_, _, _, clientID, clientSecret, _, _ := extractAuditAuthFields([]byte(`{
+		"headers":{"X-Client-ID":["h-client"],"X-Client-Secret":["h-secret"]},
+		"query":{"client_id":["q-client"],"client_secret":["q-secret"]}
+	}`))
+	if clientID != "h-client" || clientSecret != "h-secret" {
+		t.Fatalf("expected header priority, got %q %q", clientID, clientSecret)
 	}
 }
 

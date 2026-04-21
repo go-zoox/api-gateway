@@ -3,6 +3,8 @@ package jsonaudit
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -186,9 +188,181 @@ func (j *JSONAudit) insertAuditRecord(line []byte) error {
 	if db == nil {
 		return fmt.Errorf("database sink not initialized")
 	}
+
+	var payload struct {
+		Type              string          `json:"type"`
+		Time              string          `json:"time"`
+		Timestamp         int64           `json:"timestamp"`
+		Method            string          `json:"method"`
+		Path              string          `json:"path"`
+		RemoteAddr        string          `json:"remote_addr"`
+		RequestID         string          `json:"request_id"`
+		UserAgent         string          `json:"user_agent"`
+		ResponseStatus    int             `json:"response_status"`
+		ContentType       string          `json:"content_type"`
+		RequestTruncated  bool            `json:"request_truncated"`
+		ResponseTruncated bool            `json:"response_truncated"`
+		Request           json.RawMessage `json:"request"`
+		Response          json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(line, &payload); err != nil {
+		return fmt.Errorf("invalid json audit record: %w", err)
+	}
+	if strings.TrimSpace(payload.Type) == "" {
+		payload.Type = "json_audit"
+	}
+
+	request := string(payload.Request)
+	response := string(payload.Response)
+	username, password, token, clientID, clientSecret, authorization, xAPIKey := extractAuditAuthFields(payload.Request)
+
 	return db.Create(&jsonAuditRecord{
-		Payload: string(line),
+		Type:              payload.Type,
+		Time:              payload.Time,
+		Timestamp:         payload.Timestamp,
+		Method:            payload.Method,
+		Path:              payload.Path,
+		RemoteAddr:        payload.RemoteAddr,
+		RequestID:         payload.RequestID,
+		UserAgent:         payload.UserAgent,
+		ResponseStatus:    payload.ResponseStatus,
+		ContentType:       payload.ContentType,
+		RequestTruncated:  payload.RequestTruncated,
+		ResponseTruncated: payload.ResponseTruncated,
+		Username:          username,
+		Password:          password,
+		Token:             token,
+		ClientID:          clientID,
+		ClientSecret:      clientSecret,
+		Authorization:     authorization,
+		XAPIKey:           xAPIKey,
+		Request:           request,
+		Response:          response,
 	}).Error
+}
+
+func extractAuditAuthFields(requestRaw json.RawMessage) (username string, password string, token string, clientID string, clientSecret string, authorization string, xAPIKey string) {
+	if len(requestRaw) == 0 {
+		return "", "", "", "", "", "", ""
+	}
+	var req struct {
+		Headers map[string][]string `json:"headers"`
+		Query   map[string][]string `json:"query"`
+	}
+	if err := json.Unmarshal(requestRaw, &req); err != nil {
+		return "", "", "", "", "", "", ""
+	}
+
+	auth := firstHeaderValue(req.Headers, "Authorization")
+	authorization = auth
+	if auth != "" {
+		scheme, credential := parseAuthorizationHeader(auth)
+		switch scheme {
+		case "basic":
+			if decoded, err := base64.StdEncoding.DecodeString(credential); err == nil {
+				user, pass, found := strings.Cut(string(decoded), ":")
+				if found {
+					username = user
+					password = pass
+				} else {
+					username = string(decoded)
+				}
+			}
+		case "bearer":
+			token = credential
+		}
+	}
+	xAPIKey = firstHeaderValue(req.Headers, "X-API-Key")
+
+	if v := firstHeaderValue(req.Headers, "X-Client-ID"); v != "" {
+		clientID = v
+	} else if v, ok := findFirstQueryValue(req.Query, "client_id"); ok {
+		clientID = v
+	}
+	if v := firstHeaderValue(req.Headers, "X-Client-Secret"); v != "" {
+		clientSecret = v
+	} else if v, ok := findFirstQueryValue(req.Query, "client_secret"); ok {
+		clientSecret = v
+	}
+
+	return username, password, token, clientID, clientSecret, authorization, xAPIKey
+}
+
+func parseAuthorizationHeader(raw string) (scheme string, credential string) {
+	parts := strings.Fields(strings.TrimSpace(raw))
+	if len(parts) < 2 {
+		return "", ""
+	}
+	return strings.ToLower(parts[0]), strings.Join(parts[1:], " ")
+}
+
+func firstHeaderValue(headers map[string][]string, name string) string {
+	if len(headers) == 0 {
+		return ""
+	}
+	lowerName := strings.ToLower(strings.TrimSpace(name))
+	for k, values := range headers {
+		if strings.ToLower(strings.TrimSpace(k)) != lowerName || len(values) == 0 {
+			continue
+		}
+		for _, v := range values {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+func findFirstQueryValue(query map[string][]string, key string) (string, bool) {
+	if len(query) == 0 {
+		return "", false
+	}
+	for k, values := range query {
+		if !sameAuditKey(k, key) || len(values) == 0 {
+			continue
+		}
+		for _, v := range values {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				return v, true
+			}
+		}
+	}
+	return "", false
+}
+
+func findStringByKey(v any, targetKey string) (string, bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, item := range x {
+			if sameAuditKey(k, targetKey) {
+				if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s), true
+				}
+			}
+			if out, ok := findStringByKey(item, targetKey); ok {
+				return out, true
+			}
+		}
+	case []any:
+		for _, item := range x {
+			if out, ok := findStringByKey(item, targetKey); ok {
+				return out, true
+			}
+		}
+	}
+	return "", false
+}
+
+func sameAuditKey(a string, b string) bool {
+	normalize := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		s = strings.ReplaceAll(s, "-", "_")
+		return s
+	}
+	return normalize(a) == normalize(b)
 }
 
 type databaseSinkConfig struct {
@@ -394,9 +568,29 @@ func normalizeSQLiteDSN(rawDSN string) (string, error) {
 }
 
 type jsonAuditRecord struct {
-	ID        uint      `gorm:"primaryKey"`
-	CreatedAt time.Time `gorm:"autoCreateTime"`
-	Payload   string    `gorm:"type:text;not null"`
+	ID                uint      `gorm:"primaryKey"`
+	CreatedAt         time.Time `gorm:"autoCreateTime"`
+	Type              string    `gorm:"type:varchar(64);not null;index"`
+	Time              string    `gorm:"type:varchar(64)"`
+	Timestamp         int64     `gorm:"index"`
+	Method            string    `gorm:"type:varchar(16);index"`
+	Path              string    `gorm:"type:text"`
+	RemoteAddr        string    `gorm:"type:varchar(255)"`
+	RequestID         string    `gorm:"type:varchar(255);index"`
+	UserAgent         string    `gorm:"type:text"`
+	ResponseStatus    int       `gorm:"index"`
+	ContentType       string    `gorm:"type:varchar(255)"`
+	RequestTruncated  bool
+	ResponseTruncated bool
+	Username          string `gorm:"type:varchar(255);index"`
+	Password          string `gorm:"type:text"`
+	Token             string `gorm:"type:text"`
+	ClientID          string `gorm:"type:varchar(255);index"`
+	ClientSecret      string `gorm:"type:text"`
+	Authorization     string `gorm:"type:text"`
+	XAPIKey           string `gorm:"type:text"`
+	Request           string `gorm:"type:text"`
+	Response          string `gorm:"type:text"`
 }
 
 func (jsonAuditRecord) TableName() string {
