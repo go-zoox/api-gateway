@@ -20,6 +20,7 @@ import (
 	"github.com/go-zoox/api-gateway/core/route"
 	"github.com/go-zoox/api-gateway/plugin"
 	"github.com/go-zoox/zoox"
+	"gorm.io/gorm"
 )
 
 type ctxKey int
@@ -59,6 +60,9 @@ type JSONAudit struct {
 	fileMu      sync.Mutex
 	fileHandles map[string]*os.File
 	httpClient  *http.Client
+
+	dbMu sync.Mutex
+	db   *gorm.DB
 }
 
 // New builds a JSON audit plugin (call Prepare after construction via core).
@@ -94,6 +98,9 @@ func (j *JSONAudit) Prepare(app *zoox.Application, cfg *config.Config) error {
 				return err
 			}
 		}
+	}
+	if err := j.prepareDatabaseSink(app, cfg); err != nil {
+		return err
 	}
 
 	app.Logger().Infof("[plugin:jsonaudit] prepare (global enable=%v, route overrides=%d, max_body_bytes=%d, sample_rate=%g)",

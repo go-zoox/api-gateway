@@ -48,7 +48,7 @@ YAML keys use **snake_case**.
 <td valign="top"><code>output</code></td>
 <td valign="top">No</td>
 <td valign="top"><code>provider: console</code></td>
-<td valign="top">Nested block: <strong><code>provider</code></strong> — <code>console</code> (default, app logger), <code>file</code>, or <code>http</code> (<code>webhook</code> / <code>endpoint</code> / <code>api</code> mean http). When <code>provider: file</code>, set <strong><code>file.path</code></strong>. When <code>provider: http</code>, set <strong><code>http</code></strong> (<code>url</code> required; optional <code>method</code>, <code>headers</code>, <code>timeout_seconds</code>). HTTP errors fall back to logging the same line at <strong>info</strong> on the console sink.</td>
+<td valign="top">Nested block: <strong><code>provider</code></strong> — <code>console</code> (default, app logger), <code>file</code>, <code>http</code>, or <code>database</code> (<code>webhook</code> / <code>endpoint</code> / <code>api</code> mean http; <code>db</code> / <code>sql</code> mean database). For <code>file</code>, set <strong><code>file.path</code></strong>. For <code>http</code>, set <strong><code>http</code></strong> (<code>url</code> required; optional <code>method</code>, <code>headers</code>, <code>timeout_seconds</code>). For <code>database</code>, set <strong><code>database</code></strong> (<code>engine</code>: postgres/mysql/sqlite, <code>dsn</code> required). Database sink connects via <code>github.com/go-zoox/gormx</code> and runs startup auto-migrate for the audit table. HTTP/database failures fall back to logging the same line at <strong>info</strong> on the console sink.</td>
 </tr>
 <tr>
 <td valign="top"><code>max_body_bytes</code></td>
@@ -122,8 +122,9 @@ json_audit:
 | **`console`** (default) | Emit through the app logger at **info** (same pipeline as other gateway logs). |
 | **`file`** | Append to **`output.file.path`** (newline after each JSON object). |
 | **`http`** | **`POST`** (unless overridden) the JSON bytes to **`output.http.url`** with **`Content-Type: application/json`**. |
+| **`database`** | Insert one row into the auto-migrated audit table using **`output.database.engine`** + **`output.database.dsn`** (via `gormx`). |
 
-Synonyms such as **`webhook`**, **`endpoint`**, or **`api`** for **`provider`** are treated like **`http`**. If **`provider`** is **`file`** or **`http`**, **`file.path`** / **`http.url`** must be set when that block is enabled (validated at startup). HTTP delivery uses a bounded timeout; on failure or non-2xx status, the same line is **also** logged at **info** on the console sink so audits are not silently dropped.
+Synonyms such as **`webhook`**, **`endpoint`**, or **`api`** for **`provider`** are treated like **`http`**; **`db`** / **`sql`** are treated like **`database`**. If **`provider`** is **`file`**, **`http`**, or **`database`**, the corresponding required keys are validated at startup: **`file.path`**, **`http.url`**, or database fields. For **`database`**, you can use either **`output.database.dsn`** or structured fields (**`engine`**, **`host`**, **`port`**, **`username`**, **`password`**, **`db`**). Structured fields have higher priority than `dsn`. If `output.database` is omitted, the plugin can fall back to top-level **`database`** config. The plugin opens the connection with `gormx` and runs `AutoMigrate` during startup. On delivery/write failures, the same line is **also** logged at **info** on the console sink so audits are not silently dropped.
 
 Default (console) — omit **`output`** or set **`provider`** only:
 
@@ -158,6 +159,57 @@ json_audit:
       headers:
         Authorization: Bearer your-ingest-token
       timeout_seconds: 8
+```
+
+Write to database (PostgreSQL / MySQL / SQLite):
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: postgres
+      dsn: postgres://postgres:secret@127.0.0.1:5432/apigw_audit?sslmode=disable
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: mysql
+      dsn: mysql://root:secret@127.0.0.1:3306/apigw_audit?charset=utf8mb4&parseTime=True&loc=Local
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: sqlite
+      dsn: /var/lib/api-gateway/json-audit.sqlite
+```
+
+`postgres://...` and `mysql://...` URL-style DSNs are recommended. Legacy DSN forms remain compatible.
+
+Use top-level `database` as shared fallback (compatible with `conf/config.yaml`):
+
+```yaml
+database:
+  engine: postgres
+  host: postgres
+  port: 5432
+  username: postgres
+  password: postgres
+  db: api-gateway
+
+json_audit:
+  enable: true
+  output:
+    provider: database
 ```
 
 Route-only file sink (this route overrides global **`output`** for matching paths):

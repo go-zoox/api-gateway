@@ -12,6 +12,9 @@ func TestEffectiveJSONAuditProvider(t *testing.T) {
 	if g := EffectiveJSONAuditProvider(JSONAuditOutput{Provider: "file"}); g != "file" {
 		t.Fatalf("file: %q", g)
 	}
+	if g := EffectiveJSONAuditProvider(JSONAuditOutput{Provider: "db"}); g != "database" {
+		t.Fatalf("database: %q", g)
+	}
 	if g := EffectiveJSONAuditProvider(JSONAuditOutput{Provider: "weird"}); g != "console" {
 		t.Fatalf("unknown -> console: %q", g)
 	}

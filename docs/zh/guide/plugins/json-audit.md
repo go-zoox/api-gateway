@@ -48,7 +48,7 @@ YAML 使用 **snake_case**。
 <td valign="top"><code>output</code></td>
 <td valign="top">否</td>
 <td valign="top"><code>provider: console</code></td>
-<td valign="top">嵌套块：<strong><code>provider</code></strong> — <code>console</code>（默认）、<code>file</code>、<code>http</code>（<code>webhook</code> / <code>endpoint</code> / <code>api</code> 视为 http）。<code>provider: file</code> 时配置 <strong><code>file.path</code></strong>；<code>provider: http</code> 时配置 <strong><code>http</code></strong>（<code>url</code> 必填；可选 <code>method</code>、<code>headers</code>、<code>timeout_seconds</code>）。HTTP 失败时退回 **info** 写控制台。</td>
+<td valign="top">嵌套块：<strong><code>provider</code></strong> — <code>console</code>（默认）、<code>file</code>、<code>http</code>、<code>database</code>（<code>webhook</code> / <code>endpoint</code> / <code>api</code> 视为 http；<code>db</code> / <code>sql</code> 视为 database）。<code>provider: file</code> 时配置 <strong><code>file.path</code></strong>；<code>provider: http</code> 时配置 <strong><code>http</code></strong>（<code>url</code> 必填；可选 <code>method</code>、<code>headers</code>、<code>timeout_seconds</code>）；<code>provider: database</code> 时必须配置独立的 <strong><code>database</code></strong>（支持 DSN 或结构化字段），不回退顶层 <code>database</code>。使用 URL 形式 DSN（如 <code>postgres://</code>、<code>mysql://</code>）时可省略 <code>engine</code>；结构化字段或非 URL DSN 时需显式指定 <code>engine</code>。若选择 <code>database</code> 但未配置 <code>output.database</code>，启动阶段会 panic。数据库模式通过 <code>github.com/go-zoox/gormx</code> 建连，并在启动时自动执行迁移。HTTP/数据库写入失败会退回 **info** 控制台输出。</td>
 </tr>
 <tr>
 <td valign="top"><code>max_body_bytes</code></td>
@@ -122,8 +122,9 @@ json_audit:
 | **`console`**（默认） | 走应用 **`info`** 日志（与其它网关日志同一套管线）。 |
 | **`file`** | 追加写入 **`output.file.path`**，每条记录后换行（NDJSON）。 |
 | **`http`** | 向 **`output.http.url`** 发起请求（默认 **`POST`**），请求体为审计 JSON，**`Content-Type: application/json`**。 |
+| **`database`** | 使用 **`output.database`**（支持 **DSN** 或**完整字段配置**）通过 `gormx` 将审计记录写入自动迁移的数据库表。 |
 
-**`webhook`**、**`endpoint`**、**`api`** 写在 **`provider`** 上时与 **`http`** 等价。若 **`provider`** 为 **`file`** / **`http`**，必须配置 **`file.path`** / **`http.url`**（启用块在启动时校验）。HTTP 投递失败或非 2xx 时，同一条记录会**额外**以 **info** 打到控制台，避免静默丢审计。
+**`webhook`**、**`endpoint`**、**`api`** 写在 **`provider`** 上时与 **`http`** 等价；**`db`**、**`sql`** 与 **`database`** 等价。若 **`provider`** 为 **`file`** / **`http`** / **`database`**，启动时会校验对应必填项：**`file.path`**、**`http.url`**、或数据库连接字段。数据库模式支持两种写法：**`output.database.dsn`** 或结构化字段（**`engine`**、**`host`**、**`port`**、**`username`**、**`password`**、**`db`**）；结构化字段优先级高于 `dsn`。当 `dsn` 是 URL 形式（如 `postgres://...`、`mysql://...`）时可从 scheme 自动识别引擎，`engine` 可省略；若为非 URL DSN（如 SQLite 文件路径、MySQL 旧 DSN）则通常需要显式 `engine`。数据库配置仅来自 **`output.database`**，不再回退读取顶层 **`database`**。若 **`provider: database`** 但 **`output.database`** 完全缺失，插件会在启动阶段直接 panic。数据库模式会在启动时通过 `gormx` 建立连接并执行 `AutoMigrate`。投递/写入失败时，同一条记录会**额外**以 **info** 打到控制台，避免静默丢审计。
 
 默认（控制台）——可省略 **`output`** 或只写 **`provider`**：
 
@@ -159,6 +160,79 @@ json_audit:
         Authorization: Bearer your-ingest-token
       timeout_seconds: 8
 ```
+
+写入数据库（PostgreSQL / MySQL / SQLite）：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      dsn: postgres://postgres:secret@127.0.0.1:5432/apigw_audit?sslmode=disable
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      dsn: mysql://root:secret@127.0.0.1:3306/apigw_audit?charset=utf8mb4&parseTime=True&loc=Local
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      dsn: sqlite:///var/lib/api-gateway/json-audit.sqlite
+```
+
+推荐使用 URL 风格 DSN（如 `postgres://...`、`mysql://...`、`sqlite:///...`）；URL DSN 下可省略 `engine`。历史 DSN 写法仍保持兼容。
+
+完整数据库字段配置（不使用 `dsn`）：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: postgres
+      host: 127.0.0.1
+      port: 5432
+      username: postgres
+      password: secret
+      db: apigw_audit
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: mysql
+      host: 127.0.0.1
+      port: 3306
+      username: root
+      password: secret
+      db: apigw_audit
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: sqlite
+      db: /var/lib/api-gateway/json-audit.sqlite
+```
+
+> 注意：`json_audit.output.provider: database` 必须在 `json_audit.output.database` 内配置数据库连接信息；不支持复用顶层 `database` 作为兜底。
 
 仅某一路由写入单独文件（示例：账单前缀）：
 

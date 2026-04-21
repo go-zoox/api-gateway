@@ -15,6 +15,8 @@ type Config struct {
 	//
 	Cache Cache `config:"cache"`
 	//
+	Database Database `config:"database"`
+	//
 	HealthCheck HealthCheck `config:"healthcheck"`
 	//
 	RateLimit RateLimit `config:"rate_limit"`
@@ -26,6 +28,7 @@ type Config struct {
 
 // JSONAudit uses route.JSONAudit to avoid circular imports (same pattern as RateLimit).
 type JSONAudit = route.JSONAudit
+type Database = route.JSONAuditOutputDatabase
 
 type HealthCheck struct {
 	Outer HealthCheckOuter `config:"outer"`
