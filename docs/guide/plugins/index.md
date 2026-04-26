@@ -7,6 +7,8 @@ API Gateway exposes a dedicated **plugins** area: each built-in capability lives
 | Plugin | Package | Enabled when |
 | --- | --- | --- |
 | [Base URI](./base-uri) | `plugin/baseuri` | YAML `baseuri` is non-empty |
+| [IP policy](./ip-policy) | `plugin/ippolicy` | Global `ip_policy.enable` or any route has `ip_policy.enable` |
+| [CORS](./cors) | `plugin/cors` | Global `cors.enable` or any route has `cors.enable` |
 | [Rate limiting](./rate-limit) | `plugin/ratelimit` | Global `rate_limit.enable` or any route has `rate_limit.enable` |
 | [JSON audit](./json-audit) | `plugin/jsonaudit` | Top-level `json_audit.enable` or any route has `json_audit.enable` |
 
@@ -87,6 +89,8 @@ func (p *MyPlugin) OnResponse(ctx *zoox.Context, res *http.Response) error {
 ## Next steps
 
 - [Base URI](./base-uri) — Strip or require a URL prefix for all routes.
+- [IP policy](./ip-policy) — Allow/deny CIDRs; trusted forwarders and `X-Forwarded-For`.
+- [CORS](./cors) — Preflight and response headers for browser cross-origin access.
 - [Rate limiting](./rate-limit) — Token bucket, leaky bucket, fixed window; memory or Redis.
 - [JSON audit](./json-audit) — Log JSON-like responses with paired request bodies for audits.
 - [Configuration](/guide/configuration) — YAML structure and globals.

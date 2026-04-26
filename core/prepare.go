@@ -3,6 +3,8 @@ package core
 import (
 	"github.com/go-zoox/api-gateway/core/loadbalancer"
 	"github.com/go-zoox/api-gateway/plugin/baseuri"
+	"github.com/go-zoox/api-gateway/plugin/cors"
+	"github.com/go-zoox/api-gateway/plugin/ippolicy"
 	"github.com/go-zoox/api-gateway/plugin/jsonaudit"
 	"github.com/go-zoox/api-gateway/plugin/ratelimit"
 	"github.com/go-zoox/kv"
@@ -104,6 +106,16 @@ func (c *core) preparePluginsBuildin() error {
 		})
 	}
 
+	// IP policy (middleware + no-op OnRequest/OnResponse)
+	if c.shouldEnableIPPolicy() {
+		c.plugins = append(c.plugins, ippolicy.New())
+	}
+
+	// CORS (middleware + OnResponse)
+	if c.shouldEnableCORS() {
+		c.plugins = append(c.plugins, cors.New())
+	}
+
 	// rate limit
 	if c.shouldEnableRateLimit() {
 		c.plugins = append(c.plugins, ratelimit.New())
@@ -124,6 +136,30 @@ func (c *core) shouldEnableJSONAudit() bool {
 	}
 	for _, rt := range c.cfg.Routes {
 		if rt.JSONAudit.Enable {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *core) shouldEnableIPPolicy() bool {
+	if c.cfg.IPPolicy.Enable {
+		return true
+	}
+	for _, r := range c.cfg.Routes {
+		if r.IPPolicy.Enable {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *core) shouldEnableCORS() bool {
+	if c.cfg.CORS.Enable {
+		return true
+	}
+	for _, r := range c.cfg.Routes {
+		if r.CORS.Enable {
 			return true
 		}
 	}

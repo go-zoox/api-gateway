@@ -23,6 +23,10 @@ type Config struct {
 	//
 	JSONAudit JSONAudit `config:"json_audit"`
 	//
+	IPPolicy IPPolicy `config:"ip_policy"`
+	//
+	CORS CORS `config:"cors"`
+	//
 	// Match func(path string) (r *route.Route, err error)
 }
 
@@ -71,3 +75,5 @@ type SSLCert struct {
 
 // RateLimit uses route.RateLimit to avoid circular dependency
 type RateLimit = route.RateLimit
+type IPPolicy = route.IPPolicy
+type CORS = route.CORS
