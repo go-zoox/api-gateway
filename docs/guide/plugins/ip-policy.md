@@ -33,13 +33,15 @@ Set `ip_policy.enable` on a route. Route **allow**, **deny**, **trusted_proxies*
 
 ## Field reference
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `enable` | bool | Turn the policy on. |
-| `allow` | list of CIDRs | If non-empty, client must match one. |
-| `deny` | list of CIDRs | Blocked clients get 403. |
-| `trusted_proxies` | list of CIDRs | When the direct peer is in this set, trust `X-Forwarded-For` (first) / `X-Real-IP`. |
-| `message` | string | Response body for 403. |
+**Required?** is whether the field must be set for a *meaningful* IP policy. **Default** is the value when the field is omitted. To actually enable the plugin, set **`enable: true`** on the **global** `ip_policy` block and/or a **route** (see the table for `enable`).
+
+| Field | Type | Required? | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enable` | bool | No* | `false` | *Must be `true` (globally and/or on a route) for the IP policy plugin to register and run. |
+| `allow` | list of CIDRs | No | _empty_ | If non-empty, client must match at least one; if empty, no allowlist is applied (only `deny` matters). |
+| `deny` | list of CIDRs | No | _empty_ | If non-empty, matching clients receive 403. |
+| `trusted_proxies` | list of CIDRs | No | _empty_ | If empty, only `RemoteAddr` is used; if non-empty, XFF is trusted when the direct peer is in this set. |
+| `message` | string | No | `Forbidden` | Response body for HTTP 403 when blocked. |
 
 CIDRs may be written as `192.0.2.1/32` or a single address without a mask (`192.0.2.1` means `/32` or `/128`).
 

@@ -36,15 +36,17 @@ Enable `cors` on a route. Empty arrays on the route **inherit** from the global 
 
 ## Field reference
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `enable` | bool | Turn CORS on. |
-| `allow_origins` | list of strings | `*` (no credentials) or exact origins. |
-| `allow_methods` | list | Defaults to common REST methods if omitted. |
-| `allow_headers` | list | Default `["*"]` if omitted. |
-| `expose_headers` | list | `Access-Control-Expose-Headers`. |
-| `allow_credentials` | bool | If true, origins must be explicit (no `*`). |
-| `max_age` | int (seconds) | `Access-Control-Max-Age` for preflight. |
+**Required?** is whether the field must be set for a *meaningful* CORS block once `cors` is in use. **Default** is the value when the field is omitted (struct zero / normalizer defaults). To actually enable the plugin, set **`enable: true`** on the **global** `cors` block and/or a **route** (see the table for `enable`).
+
+| Field | Type | Required? | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enable` | bool | No* | `false` | *Must be `true` (globally and/or on a route) for the CORS plugin to register and run. |
+| `allow_origins` | list of strings | No | `["*"]` | `*` (no credentials) or exact `Origin` values. Omitted is treated as allow-all (same as `*`) before validation; still incompatible with `allow_credentials: true`. |
+| `allow_methods` | list | No | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS` | Used for preflight and `Access-Control-Allow-Methods`. |
+| `allow_headers` | list | No | `["*"]` | `Access-Control-Allow-Headers` on preflight. |
+| `expose_headers` | list | No | _empty_ | `Access-Control-Expose-Headers` on real responses. |
+| `allow_credentials` | bool | No | `false` | If `true`, `allow_origins` must not be `*`. **Prepare** fails on invalid pairings. |
+| `max_age` | int (seconds) | No | `0` | `Access-Control-Max-Age` for preflight; `0` means the header is omitted. |
 
 ## See also
 
