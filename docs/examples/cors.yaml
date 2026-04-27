@@ -1,0 +1,42 @@
+# Example: CORS only — global and per-route overrides.
+version: v1
+port: 8080
+
+cors:
+  enable: true
+  allow_origins:
+    - "https://app.example.com"
+  allow_methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allow_headers:
+    - "*"
+  expose_headers:
+    - X-Request-Id
+  allow_credentials: true
+  max_age: 3600
+
+routes:
+  - name: public-api
+    path: /api
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443
+
+  - name: admin-api
+    path: /admin
+    cors:
+      enable: true
+      # Override only what you need; other fields inherit from global cors above.
+      allow_origins:
+        - "https://admin.example.com"
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443

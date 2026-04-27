@@ -156,6 +156,28 @@ The **`json_audit`** keys map to **`config.JSONAudit`** (same shape as **`route.
 
 It logs paired request/response bodies when the upstream response is JSON-like. See the [JSON audit plugin guide](/guide/plugins/json-audit).
 
+### IP policy plugin
+
+The IP policy plugin is registered when **global** **`ip_policy.enable`** is **`true`** or **any route** enables **`ip_policy.enable`**:
+
+```go
+// github.com/go-zoox/api-gateway/plugin/ippolicy
+type IPPolicy struct { plugin.Plugin }
+```
+
+It registers **HTTP middleware** (before the reverse proxy) to enforce CIDR allow/deny lists. **`OnRequest` / `OnResponse` are no-ops.** See the [IP policy guide](/guide/plugins/ip-policy).
+
+### CORS plugin
+
+The CORS plugin is registered when **global** **`cors.enable`** is **`true`** or **any route** enables **`cors.enable`**:
+
+```go
+// github.com/go-zoox/api-gateway/plugin/cors
+type Plugin struct { plugin.Plugin }
+```
+
+It answers **OPTIONS** preflight in middleware and decorates normal responses in **`OnResponse`**. See the [CORS guide](/guide/plugins/cors).
+
 ## Best Practices
 
 1. **Error Handling**: Return errors to stop processing

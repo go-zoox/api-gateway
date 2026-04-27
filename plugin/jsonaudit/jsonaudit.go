@@ -20,6 +20,7 @@ import (
 	"github.com/go-zoox/api-gateway/core/route"
 	"github.com/go-zoox/api-gateway/plugin"
 	"github.com/go-zoox/zoox"
+	"gorm.io/gorm"
 )
 
 type ctxKey int
@@ -59,6 +60,9 @@ type JSONAudit struct {
 	fileMu      sync.Mutex
 	fileHandles map[string]*os.File
 	httpClient  *http.Client
+
+	dbMu sync.Mutex
+	db   *gorm.DB
 }
 
 // New builds a JSON audit plugin (call Prepare after construction via core).
@@ -95,6 +99,9 @@ func (j *JSONAudit) Prepare(app *zoox.Application, cfg *config.Config) error {
 			}
 		}
 	}
+	if err := j.prepareDatabaseSink(app, cfg); err != nil {
+		return err
+	}
 
 	app.Logger().Infof("[plugin:jsonaudit] prepare (global enable=%v, route overrides=%d, max_body_bytes=%d, sample_rate=%g)",
 		j.globalConfig.Enable, len(j.routeConfigs), maxBodyFor(&j.globalConfig), effectiveSampleRateFor(&j.globalConfig))
@@ -122,7 +129,7 @@ func maxBodyFor(cfg *route.JSONAudit) int64 {
 }
 
 func buildRedactKeySet(cfg *route.JSONAudit) map[string]struct{} {
-	if !cfg.Redact.RedactEnabled() {
+	if !isRedactEnabled(cfg) {
 		return nil
 	}
 	keys := cfg.Redact.Keys
@@ -137,6 +144,17 @@ func buildRedactKeySet(cfg *route.JSONAudit) map[string]struct{} {
 		out[strings.ToLower(strings.TrimSpace(k))] = struct{}{}
 	}
 	return out
+}
+
+func isRedactEnabled(cfg *route.JSONAudit) bool {
+	if cfg == nil {
+		return false
+	}
+	if cfg.Redact.Enable != nil {
+		return *cfg.Redact.Enable
+	}
+	// Default policy: only console sink masks sensitive fields.
+	return route.EffectiveJSONAuditProvider(cfg.Output) == "console"
 }
 
 // getJSONAuditConfig returns the effective json_audit config for a request path (route wins over global).
@@ -183,7 +201,7 @@ func (j *JSONAudit) OnRequest(ctx *zoox.Context, _ *http.Request) error {
 
 	q := ctx.Request.URL.Query()
 	rk := buildRedactKeySet(acfg)
-	redactOn := acfg.Redact.RedactEnabled()
+	redactOn := isRedactEnabled(acfg)
 	var headers map[string][]string
 	var query map[string][]string
 	if redactOn {
@@ -251,7 +269,7 @@ func (j *JSONAudit) OnResponse(ctx *zoox.Context, res *http.Response) error {
 	}
 
 	rk := buildRedactKeySet(acfg)
-	redactOn := acfg.Redact.RedactEnabled()
+	redactOn := isRedactEnabled(acfg)
 	reqBodyVal := j.requestBodyForLog(st.reqBody, rk, redactOn)
 	respBodyVal := j.requestBodyForLog(bodyForDetect, rk, redactOn)
 

@@ -15,7 +15,7 @@ type Backend struct {
 type RateLimit struct {
 	Enable    bool              `config:"enable"`
 	Algorithm string            `config:"algorithm,default=token-bucket"` // token-bucket, leaky-bucket, fixed-window
-	KeyType   string            `config:"key_type,default=ip"`             // ip, user, apikey, clientid, header
+	KeyType   string            `config:"key_type,default=ip"`            // ip, user, apikey, clientid, header
 	KeyHeader string            `config:"key_header"`                     // when key_type=header, specify header name
 	Limit     int64             `config:"limit"`                          // limit count
 	Window    int64             `config:"window"`                         // time window in seconds
@@ -41,12 +41,32 @@ type JSONAuditHTTPOutput struct {
 	TimeoutSeconds int64 `config:"timeout_seconds,default=5"`
 }
 
+// JSONAuditOutputDatabase configures the DB sink when output.provider is database.
+type JSONAuditOutputDatabase struct {
+	// Engine must be one of postgres, mysql, or sqlite.
+	Engine string `config:"engine"`
+	// DSN is the database connection string.
+	DSN string `config:"dsn"`
+	// Host is used to build DSN when set (higher priority than DSN).
+	Host string `config:"host"`
+	// Port is used to build DSN when Host is set.
+	Port int64 `config:"port"`
+	// Username is used to build DSN when Host is set.
+	Username string `config:"username"`
+	// Password is used to build DSN when Host is set.
+	Password string `config:"password"`
+	// DB is database name (postgres/mysql) or file path (sqlite) when Host/DB mode is used.
+	DB string `config:"db"`
+}
+
 // JSONAuditOutput groups sink selection (provider) and provider-specific settings under json_audit.output.
 type JSONAuditOutput struct {
-	// Provider is console (default), file, or http (also accepts webhook, endpoint, api as aliases for http).
-	Provider string `config:"provider,default=console"`
-	File     JSONAuditOutputFile `config:"file"`
-	HTTP     JSONAuditHTTPOutput `config:"http"`
+	// Provider is console (default), file, http, or database.
+	// Aliases: webhook/endpoint/api => http, db/sql => database.
+	Provider string                  `config:"provider,default=console"`
+	File     JSONAuditOutputFile     `config:"file"`
+	HTTP     JSONAuditHTTPOutput     `config:"http"`
+	Database JSONAuditOutputDatabase `config:"database"`
 }
 
 // JSONAudit configures JSON response audit logging for the gateway or a single route.
@@ -87,15 +107,50 @@ func (r JSONAuditRedact) RedactEnabled() bool {
 	return *r.Enable
 }
 
+// IPPolicy filters client IPs at the edge. Deny rules are evaluated first; then, if allow is non-empty,
+// the client must fall into at least one allow CIDR; if allow is empty, only deny is applied.
+type IPPolicy struct {
+	Enable bool `config:"enable"`
+	// Allow is a list of CIDRs. If non-empty, the client IP must match at least one entry.
+	Allow []string `config:"allow"`
+	// Deny is a list of CIDRs; matching clients receive HTTP 403.
+	Deny []string `config:"deny"`
+	// TrustedProxies lists CIDRs of reverse proxies. Only when the direct peer address is in this set
+	// the gateway trusts X-Forwarded-For (first hop) to derive the client IP. Empty means the gateway
+	// only uses the direct TCP remote address.
+	TrustedProxies []string `config:"trusted_proxies"`
+	// Message is the response body for denied requests.
+	Message string `config:"message,default=Forbidden"`
+}
+
+// CORS adds Cross-Origin Resource Sharing headers. Enable at the global level and/or per route; route
+// settings override the global block for fields that are set.
+type CORS struct {
+	Enable bool `config:"enable"`
+	// AllowOrigins lists allowed Origin values; use * for any origin (incompatible with AllowCredentials).
+	AllowOrigins []string `config:"allow_origins"`
+	// AllowMethods lists allowed methods for preflight and Access-Control-Allow-Methods.
+	AllowMethods []string `config:"allow_methods"`
+	// AllowHeaders lists allowed request headers (Access-Control-Allow-Headers).
+	AllowHeaders []string `config:"allow_headers"`
+	// ExposeHeaders lists response headers the browser may read (Access-Control-Expose-Headers).
+	ExposeHeaders    []string `config:"expose_headers"`
+	AllowCredentials bool     `config:"allow_credentials"`
+	// MaxAge is the preflight cache duration in seconds (Access-Control-Max-Age).
+	MaxAge int64 `config:"max_age"`
+}
+
 type Route struct {
 	Name    string  `config:"name"`
 	Path    string  `config:"path"`
 	Backend Backend `config:"backend"`
 	// PathType is the path type of route, options: prefix, regex
-	PathType   string    `config:"path_type,default=prefix"`
-	RateLimit  RateLimit `config:"rate_limit"`
-	JSONAudit  JSONAudit `config:"json_audit"`
-	HTTPCache  HTTPCache `config:"http_cache"`
+	PathType  string    `config:"path_type,default=prefix"`
+	RateLimit RateLimit `config:"rate_limit"`
+	JSONAudit JSONAudit `config:"json_audit"`
+	HTTPCache HTTPCache `config:"http_cache"`
+	IPPolicy  IPPolicy  `config:"ip_policy"`
+	CORS      CORS      `config:"cors"`
 }
 
 // EffectiveJSONAuditProvider returns the normalized sink id: console, file, or http.
@@ -107,6 +162,8 @@ func EffectiveJSONAuditProvider(o JSONAuditOutput) string {
 		return "file"
 	case "http", "https", "webhook", "endpoint", "api":
 		return "http"
+	case "database", "db", "sql":
+		return "database"
 	default:
 		return "console"
 	}

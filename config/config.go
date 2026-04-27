@@ -15,6 +15,8 @@ type Config struct {
 	//
 	Cache Cache `config:"cache"`
 	//
+	Database Database `config:"database"`
+	//
 	HealthCheck HealthCheck `config:"healthcheck"`
 	//
 	RateLimit RateLimit `config:"rate_limit"`
@@ -22,6 +24,10 @@ type Config struct {
 	JSONAudit JSONAudit `config:"json_audit"`
 	//
 	HTTPCache HTTPCache `config:"http_cache"`
+	//
+	IPPolicy IPPolicy `config:"ip_policy"`
+	//
+	CORS CORS `config:"cors"`
 	//
 	// Match func(path string) (r *route.Route, err error)
 }
@@ -31,6 +37,7 @@ type HTTPCache = route.HTTPCache
 
 // JSONAudit uses route.JSONAudit to avoid circular imports (same pattern as RateLimit).
 type JSONAudit = route.JSONAudit
+type Database = route.JSONAuditOutputDatabase
 
 type HealthCheck struct {
 	Outer HealthCheckOuter `config:"outer"`
@@ -73,3 +80,5 @@ type SSLCert struct {
 
 // RateLimit uses route.RateLimit to avoid circular dependency
 type RateLimit = route.RateLimit
+type IPPolicy = route.IPPolicy
+type CORS = route.CORS

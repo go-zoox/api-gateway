@@ -2,7 +2,7 @@
 
 包路径：`github.com/go-zoox/api-gateway/plugin/jsonaudit`
 
-当 **顶层** **`json_audit.enable`** 为真，**或** **任一路由** 启用 **`json_audit.enable`** 时，会注册该插件（与限流的路由级启用方式一致）。它在转发上游前**按需缓冲客户端请求体**（有上限），上游返回后在 **`OnResponse`** 中判断响应是否「**类似 JSON**」。只有满足条件时才会输出 **一条结构化 JSON 日志**，包含请求与响应内容（脱敏后），便于合规与安全审计。
+当 **顶层** **`json_audit.enable`** 为真，**或** **任一路由** 启用 **`json_audit.enable`** 时，会注册该插件（与限流的路由级启用方式一致）。它在转发上游前**按需缓冲客户端请求体**（有上限），上游返回后在 **`OnResponse`** 中判断响应是否「**类似 JSON**」。只有满足条件时才会输出 **一条结构化 JSON 日志**，包含请求与响应内容（是否脱敏取决于 `redact` 配置与 provider 默认策略），便于合规与安全审计。
 
 ## 能力概览
 
@@ -48,7 +48,7 @@ YAML 使用 **snake_case**。
 <td valign="top"><code>output</code></td>
 <td valign="top">否</td>
 <td valign="top"><code>provider: console</code></td>
-<td valign="top">嵌套块：<strong><code>provider</code></strong> — <code>console</code>（默认）、<code>file</code>、<code>http</code>（<code>webhook</code> / <code>endpoint</code> / <code>api</code> 视为 http）。<code>provider: file</code> 时配置 <strong><code>file.path</code></strong>；<code>provider: http</code> 时配置 <strong><code>http</code></strong>（<code>url</code> 必填；可选 <code>method</code>、<code>headers</code>、<code>timeout_seconds</code>）。HTTP 失败时退回 **info** 写控制台。</td>
+<td valign="top">嵌套块：<strong><code>provider</code></strong> — <code>console</code>（默认）、<code>file</code>、<code>http</code>、<code>database</code>（<code>webhook</code> / <code>endpoint</code> / <code>api</code> 视为 http；<code>db</code> / <code>sql</code> 视为 database）。<code>provider: file</code> 时配置 <strong><code>file.path</code></strong>；<code>provider: http</code> 时配置 <strong><code>http</code></strong>（<code>url</code> 必填；可选 <code>method</code>、<code>headers</code>、<code>timeout_seconds</code>）；<code>provider: database</code> 时必须配置独立的 <strong><code>database</code></strong>（支持 DSN 或结构化字段），不回退顶层 <code>database</code>。使用 URL 形式 DSN（如 <code>postgres://</code>、<code>mysql://</code>）时可省略 <code>engine</code>；结构化字段或非 URL DSN 时需显式指定 <code>engine</code>。若选择 <code>database</code> 但未配置 <code>output.database</code>，启动阶段会 panic。数据库模式通过 <code>github.com/go-zoox/gormx</code> 建连，并在启动时自动执行迁移。HTTP/数据库写入失败会退回 **info** 控制台输出。</td>
 </tr>
 <tr>
 <td valign="top"><code>max_body_bytes</code></td>
@@ -89,8 +89,8 @@ YAML 使用 **snake_case**。
 <tr>
 <td valign="top"><code>redact</code></td>
 <td valign="top">否</td>
-<td valign="top"><code>enable</code> 默认开*</td>
-<td valign="top">嵌套块：<strong><code>enable</code></strong> 控制是否脱敏（不写则<strong>开启</strong>）；<strong><code>keys</code></strong> 为 JSON/query 键名列表，空则用内置列表。<code>enable: false</code> 时头、query、JSON 正文均<strong>不脱敏</strong>（含 <code>Authorization</code> 明文）。</td>
+<td valign="top"><code>enable</code> 默认按 provider*</td>
+<td valign="top">嵌套块：<strong><code>enable</code></strong> 控制是否脱敏（显式配置优先）；未显式配置时默认仅 <code>provider=console</code> 开启，<code>file/http/database</code> 默认关闭。<strong><code>keys</code></strong> 为 JSON/query 键名列表，空则用内置列表。<code>enable: false</code> 时头、query、JSON 正文均<strong>不脱敏</strong>（含 <code>Authorization</code> 明文）。</td>
 </tr>
 </tbody>
 </table>
@@ -98,7 +98,7 @@ YAML 使用 **snake_case**。
 
 \*顶层 **`json_audit.enable`** 为真，或**任一路由**启用 **`json_audit`** 时注册插件。
 
-\*\***`redact.enable`** 省略时视为 **开启**脱敏（与显式 **`true`** 相同）。
+\*\***`redact.enable`** 显式值优先；若省略，默认仅 **`output.provider=console`** 开启脱敏，其他 sink 默认关闭。
 
 ### 字段详解
 
@@ -122,8 +122,9 @@ json_audit:
 | **`console`**（默认） | 走应用 **`info`** 日志（与其它网关日志同一套管线）。 |
 | **`file`** | 追加写入 **`output.file.path`**，每条记录后换行（NDJSON）。 |
 | **`http`** | 向 **`output.http.url`** 发起请求（默认 **`POST`**），请求体为审计 JSON，**`Content-Type: application/json`**。 |
+| **`database`** | 使用 **`output.database`**（支持 **DSN** 或**完整字段配置**）通过 `gormx` 将审计记录写入自动迁移的数据库表。 |
 
-**`webhook`**、**`endpoint`**、**`api`** 写在 **`provider`** 上时与 **`http`** 等价。若 **`provider`** 为 **`file`** / **`http`**，必须配置 **`file.path`** / **`http.url`**（启用块在启动时校验）。HTTP 投递失败或非 2xx 时，同一条记录会**额外**以 **info** 打到控制台，避免静默丢审计。
+**`webhook`**、**`endpoint`**、**`api`** 写在 **`provider`** 上时与 **`http`** 等价；**`db`**、**`sql`** 与 **`database`** 等价。若 **`provider`** 为 **`file`** / **`http`** / **`database`**，启动时会校验对应必填项：**`file.path`**、**`http.url`**、或数据库连接字段。数据库模式支持两种写法：**`output.database.dsn`** 或结构化字段（**`engine`**、**`host`**、**`port`**、**`username`**、**`password`**、**`db`**）；结构化字段优先级高于 `dsn`。当 `dsn` 是 URL 形式（如 `postgres://...`、`mysql://...`、`sqlite:///...`）时可从 scheme 自动识别引擎，`engine` 可省略；若为非 URL DSN（如 SQLite 文件路径、MySQL 旧 DSN）则通常需要显式 `engine`。数据库配置仅来自 **`output.database`**，不再回退读取顶层 **`database`**。若 **`provider: database`** 但 **`output.database`** 完全缺失，插件会在启动阶段直接 panic。数据库模式会在启动时通过 `gormx` 建立连接并执行 `AutoMigrate`，并按结构化字段入库（见下方）。投递/写入失败时，同一条记录会**额外**以 **info** 打到控制台，避免静默丢审计。
 
 默认（控制台）——可省略 **`output`** 或只写 **`provider`**：
 
@@ -159,6 +160,87 @@ json_audit:
         Authorization: Bearer your-ingest-token
       timeout_seconds: 8
 ```
+
+写入数据库（PostgreSQL / MySQL / SQLite）：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      dsn: postgres://postgres:secret@127.0.0.1:5432/apigw_audit?sslmode=disable
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      dsn: mysql://root:secret@127.0.0.1:3306/apigw_audit?charset=utf8mb4&parseTime=True&loc=Local
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      dsn: sqlite:///var/lib/api-gateway/json-audit.sqlite
+```
+
+推荐使用 URL 风格 DSN（如 `postgres://...`、`mysql://...`、`sqlite:///...`）；URL DSN 下可省略 `engine`。历史 DSN 写法仍保持兼容。
+
+完整数据库字段配置（不使用 `dsn`）：
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: postgres
+      host: 127.0.0.1
+      port: 5432
+      username: postgres
+      password: secret
+      db: apigw_audit
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: mysql
+      host: 127.0.0.1
+      port: 3306
+      username: root
+      password: secret
+      db: apigw_audit
+```
+
+```yaml
+json_audit:
+  enable: true
+  output:
+    provider: database
+    database:
+      engine: sqlite
+      db: /var/lib/api-gateway/json-audit.sqlite
+```
+
+> 注意：`json_audit.output.provider: database` 必须在 `json_audit.output.database` 内配置数据库连接信息；不支持复用顶层 `database` 作为兜底。
+
+数据库落表（`json_audit_records`）为结构化字段，除基础审计字段外还会提取并保存鉴权相关数据：
+
+- `username`、`password`：来自 `Authorization: Basic ...`（可解码时）。
+- `token`：来自 `Authorization: Bearer ...`。
+- `authorization`：保存原始 `Authorization` 头值。
+- `x_api_key`：来自 `X-API-Key` 头。
+- `client_id`、`client_secret`：优先取 `X-Client-ID` / `X-Client-Secret`，仅当对应 header 缺失时回退 query 参数 `client_id` / `client_secret`；不再从 body 提取。
 
 仅某一路由写入单独文件（示例：账单前缀）：
 
@@ -233,7 +315,7 @@ json_audit:
 
 #### `redact`（嵌套）
 
-**`redact.enable`** 控制是否脱敏；**省略**表示**开启**（默认）。设为 **`false`** 时，审计记录中的敏感 **HTTP 头**、**query**、**JSON 字段**均以**明文**写出——仅限受控环境。
+**`redact.enable`** 控制是否脱敏；显式配置优先。若省略，默认仅 **`provider=console`** 开启，**`file/http/database`** 默认关闭。设为 **`false`** 时，审计记录中的敏感 **HTTP 头**、**query**、**JSON 字段**均以**明文**写出——仅限受控环境。
 
 **`redact.keys`**：键名**不区分大小写**，JSON 任意层级与 query 参数名命中则值替换为 **`"[REDACTED]"`**。脱敏**开启**且 **`keys`** 为空时，使用内置敏感键列表（含 **`password`**、**`token`** 等）；敏感头（如 **`Authorization`**）仍按内置规则掩码。
 
@@ -290,13 +372,13 @@ json_audit:
 
 ## 脱敏
 
-当 **`json_audit.redact.enable`** 不为 **`false`**（默认开启）时，若 body 可被解析为 JSON，则对对象键名做匹配（**不区分大小写**，**任意层级**），命中则将值替换为 **`"[REDACTED]"`**。
+当脱敏开启（**`redact.enable=true`**，或未显式配置且 **`provider=console`**）时，若 body 可被解析为 JSON，则对对象键名做匹配（**不区分大小写**，**任意层级**），命中则将值替换为 **`"[REDACTED]"`**。
 
 **`redact.keys` 为空**时使用内置默认值，包含：
 
 `password`、`passwd`、`secret`、`token`、`authorization`、`api_key`、`apikey`、`access_token`、`refresh_token`。
 
-敏感 **HTTP 头**（如 **`Authorization`**、**`Cookie`**）在脱敏开启时由插件内置规则掩码；**query** 参数名命中 **`redact.keys`**（或内置列表）时掩码。若正文无法解析为 JSON，仍写入 **`request.body`** / **`response.body`**，一般为**字符串**片段。**`redact.enable: false`** 时 JSON 解析结果与请求头可保持明文。
+敏感 **HTTP 头**（如 **`Authorization`**、**`Cookie`**）在脱敏开启时由插件内置规则掩码；**query** 参数名命中 **`redact.keys`**（或内置列表）时掩码。若正文无法解析为 JSON，仍写入 **`request.body`** / **`response.body`**，一般为**字符串**片段。脱敏关闭（显式关闭，或未显式配置且 provider 非 console）时，JSON 解析结果与请求头可保持明文。
 
 ## 日志字段说明
 
@@ -324,7 +406,7 @@ json_audit:
 | 字段 | 含义 |
 | --- | --- |
 | **`method`**、**`path`** | HTTP 方法与路由路径（`ctx.Path`）。 |
-| **`headers`** | 请求头，`map[string][]string`；脱敏开启时内置敏感头为 **`["[REDACTED]"]`**；**`redact.enable: false`** 时为原始值。 |
+| **`headers`** | 请求头，`map[string][]string`；脱敏开启时内置敏感头为 **`["[REDACTED]"]`**；脱敏关闭（显式关闭或 provider 默认关闭）时为原始值。 |
 | **`query`** | URL 查询参数，`map[string][]string`；键名命中 **`redact.keys`**（或内置）且脱敏开启时掩码。 |
 | **`params`** | 路由参数 **`ctx.Params().ToMap()`**，无则为空对象 **`{}`**。 |
 | **`body`** | 请求体：脱敏开启时为键脱敏后的 JSON 或字符串；关闭时为未脱敏解析结果或字符串。 |
@@ -342,7 +424,7 @@ json_audit:
 
 ### 场景说明
 
-客户端 **`POST /api/v1/login`**，请求体为 JSON（含账号口令）；上游返回 **`200`**，响应体为 JSON（含会话 **`token`**）。网关开启 **`json_audit`**，并使用默认脱敏键（含 **`password`**、**`token`** 等）。
+客户端 **`POST /api/v1/login`**，请求体为 JSON（含账号口令）；上游返回 **`200`**，响应体为 JSON（含会话 **`token`**）。网关开启 **`json_audit`**，并在 **`provider=console`**（或显式 `redact.enable=true`）下使用默认脱敏键（含 **`password`**、**`token`** 等）。
 
 只有在本请求通过**路径规则**与**抽样**之后才会记录（此处假设通过）。插件输出 **一条 info 级别日志**，其消息内容为**单行 JSON 对象**（实现上为 `ctx.Logger.Infof("%s", …)`）。
 

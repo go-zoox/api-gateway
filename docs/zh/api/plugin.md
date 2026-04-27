@@ -156,6 +156,28 @@ type JSONAudit struct {
 
 在上游响应为 JSON 类时记录成对的请求/响应体。详见 [JSON 审计插件](/zh/guide/plugins/json-audit)。
 
+### IP 策略插件
+
+当 **全局** **`ip_policy.enable`** 为真，**或** **任一路由** 启用 **`ip_policy.enable`** 时，会注册 IP 策略插件：
+
+```go
+// github.com/go-zoox/api-gateway/plugin/ippolicy
+type IPPolicy struct { plugin.Plugin }
+```
+
+在 **HTTP 中间件**（反向代理之前）按 CIDR 做允许/拒绝。**`OnRequest` / `OnResponse` 为空实现。** 详见 [IP 策略](/zh/guide/plugins/ip-policy)。
+
+### CORS 插件
+
+当 **全局** **`cors.enable`** 为真，**或** **任一路由** 启用 **`cors.enable`** 时，会注册 CORS 插件：
+
+```go
+// github.com/go-zoox/api-gateway/plugin/cors
+type Plugin struct { plugin.Plugin }
+```
+
+在 **中间件** 中响应 **OPTIONS** 预检，在 **`OnResponse`** 中补充跨域响应头。详见 [CORS](/zh/guide/plugins/cors)。
+
 ## 最佳实践
 
 1. **错误处理**：返回错误以停止处理

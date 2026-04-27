@@ -1,6 +1,8 @@
 package jsonaudit
 
 import (
+	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/go-zoox/api-gateway/config"
 	"github.com/go-zoox/api-gateway/core/route"
+	"github.com/go-zoox/gormx"
 	"github.com/go-zoox/logger"
 	"github.com/go-zoox/zoox"
 	"github.com/go-zoox/zoox/defaults"
@@ -42,6 +45,42 @@ func TestPrepare_JSONAuditOutputHTTPMissingURL(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "output.http.url") {
 		t.Fatalf("expected error about url, got %v", err)
+	}
+}
+
+func TestPrepare_JSONAuditOutputDatabaseMissingEngine(t *testing.T) {
+	j := New()
+	err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable: true,
+			Output: route.JSONAuditOutput{
+				Provider: "database",
+				Database: route.JSONAuditOutputDatabase{
+					DSN: "db.sqlite",
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "output.database.engine") {
+		t.Fatalf("expected error about output.database.engine, got %v", err)
+	}
+}
+
+func TestPrepare_JSONAuditOutputDatabaseMissingDSN(t *testing.T) {
+	j := New()
+	err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable: true,
+			Output: route.JSONAuditOutput{
+				Provider: "database",
+				Database: route.JSONAuditOutputDatabase{
+					Engine: "sqlite",
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "output.database.dsn") {
+		t.Fatalf("expected error about output.database.dsn, got %v", err)
 	}
 }
 
@@ -123,4 +162,349 @@ func TestEmitAuditLine_HTTPFallbackOnError(t *testing.T) {
 	})
 	ctx := &zoox.Context{Logger: logger.New()}
 	j.emitAuditLine(ctx, &j.globalConfig, []byte(`{"ok":true}`))
+}
+
+func TestEmitAuditLine_DatabaseSQLite(t *testing.T) {
+	dbPath := t.TempDir() + string(os.PathSeparator) + "audit.sqlite"
+	j := New()
+	err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable: true,
+			Output: route.JSONAuditOutput{
+				Provider: "database",
+				Database: route.JSONAuditOutputDatabase{
+					Engine: "sqlite",
+					DSN:    dbPath,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepare database sink failed: %v", err)
+	}
+
+	ctx := &zoox.Context{Logger: logger.New()}
+	basicHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret"))
+	j.emitAuditLine(ctx, &j.globalConfig, []byte(fmt.Sprintf(`{
+		"type":"json_audit",
+		"time":"2026-01-01T00:00:00Z",
+		"timestamp":1700000000000,
+		"method":"GET",
+		"path":"/users",
+		"remote_addr":"127.0.0.1",
+		"request_id":"req-1",
+		"user_agent":"unit-test",
+		"response_status":200,
+		"content_type":"application/json",
+		"request_truncated":false,
+		"response_truncated":false,
+		"request":{
+			"headers":{"Authorization":["%s"],"X-API-Key":["api-key-1"]},
+			"query":{"client_id":["cli_query"]},
+			"body":{"name":"alice","client_id":"cli_body","client_secret":"sec_body"}
+		},
+		"response":{"body":{"ok":true}}
+	}`, basicHeader)))
+
+	db := gormx.GetDB()
+	if db == nil {
+		t.Fatal("expected gormx db")
+	}
+	type rec struct {
+		Type           string
+		Method         string
+		Path           string
+		ResponseStatus int
+		Username       string
+		Password       string
+		Authorization  string
+		XAPIKey        string
+		ClientID       string
+		ClientSecret   string
+		Request        string
+		Response       string
+	}
+	var out rec
+	if err := db.Raw("SELECT type, method, path, response_status, username, password, authorization, x_api_key, client_id, client_secret, request, response FROM json_audit_records ORDER BY id DESC LIMIT 1").Scan(&out).Error; err != nil {
+		t.Fatalf("query migrated table failed: %v", err)
+	}
+	if out.Type != "json_audit" || out.Method != "GET" || out.Path != "/users" || out.ResponseStatus != 200 {
+		t.Fatalf("unexpected structured fields: %+v", out)
+	}
+	if out.Username != "alice" || out.Password != "s3cret" {
+		t.Fatalf("unexpected basic auth fields: %+v", out)
+	}
+	if !strings.HasPrefix(out.Authorization, "Basic ") || out.XAPIKey != "api-key-1" {
+		t.Fatalf("unexpected authorization/api key fields: %+v", out)
+	}
+	if out.ClientID != "cli_query" || out.ClientSecret != "" {
+		t.Fatalf("unexpected client fields: %+v", out)
+	}
+	if !strings.Contains(out.Request, `"name":"alice"`) {
+		t.Fatalf("unexpected request: %q", out.Request)
+	}
+	if !strings.Contains(out.Response, `"ok":true`) {
+		t.Fatalf("unexpected response: %q", out.Response)
+	}
+}
+
+func TestExtractAuditAuthFields_BearerAndQueryClient(t *testing.T) {
+	username, password, token, clientID, clientSecret, authorization, xAPIKey := extractAuditAuthFields([]byte(`{
+		"headers":{"Authorization":["Bearer token-123"]},
+		"query":{"client_id":["q-client"],"client_secret":["q-secret"]},
+		"body":{"ignored":true}
+	}`))
+	if username != "" || password != "" {
+		t.Fatalf("unexpected basic auth: %q %q", username, password)
+	}
+	if token != "token-123" {
+		t.Fatalf("unexpected token: %q", token)
+	}
+	if authorization != "Bearer token-123" || xAPIKey != "" {
+		t.Fatalf("unexpected auth header fields: %q %q", authorization, xAPIKey)
+	}
+	if clientID != "q-client" || clientSecret != "q-secret" {
+		t.Fatalf("unexpected client auth: %q %q", clientID, clientSecret)
+	}
+}
+
+func TestExtractAuditAuthFields_ClientFromHeaders(t *testing.T) {
+	username, password, token, clientID, clientSecret, authorization, xAPIKey := extractAuditAuthFields([]byte(`{
+		"headers":{"X-Client-ID":["h-client"],"X-Client-Secret":["h-secret"]},
+		"query":{"ignored":["x"]},
+		"body":{"ignored":true}
+	}`))
+	if username != "" || password != "" || token != "" {
+		t.Fatalf("unexpected auth fields: %q %q %q", username, password, token)
+	}
+	if authorization != "" || xAPIKey != "" {
+		t.Fatalf("unexpected header fields: %q %q", authorization, xAPIKey)
+	}
+	if clientID != "h-client" || clientSecret != "h-secret" {
+		t.Fatalf("unexpected header client auth: %q %q", clientID, clientSecret)
+	}
+}
+
+func TestExtractAuditAuthFields_ClientHeaderHasPriorityOverQuery(t *testing.T) {
+	_, _, _, clientID, clientSecret, _, _ := extractAuditAuthFields([]byte(`{
+		"headers":{"X-Client-ID":["h-client"],"X-Client-Secret":["h-secret"]},
+		"query":{"client_id":["q-client"],"client_secret":["q-secret"]}
+	}`))
+	if clientID != "h-client" || clientSecret != "h-secret" {
+		t.Fatalf("expected header priority, got %q %q", clientID, clientSecret)
+	}
+}
+
+func TestPrepare_JSONAuditOutputDatabaseMultiConfigMismatch(t *testing.T) {
+	j := New()
+	err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable: true,
+			Output: route.JSONAuditOutput{
+				Provider: "database",
+				Database: route.JSONAuditOutputDatabase{
+					Engine: "sqlite",
+					DSN:    "a.sqlite",
+				},
+			},
+		},
+		Routes: []route.Route{
+			{
+				Path: "/api",
+				JSONAudit: route.JSONAudit{
+					Enable: true,
+					Output: route.JSONAuditOutput{
+						Provider: "database",
+						Database: route.JSONAuditOutputDatabase{
+							Engine: "sqlite",
+							DSN:    "b.sqlite",
+						},
+					},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "multiple database sinks") {
+		t.Fatalf("expected mismatch error, got %v", err)
+	}
+}
+
+func TestNormalizeJSONAuditDatabaseEngine(t *testing.T) {
+	tests := map[string]string{
+		"postgres":   "postgres",
+		"PostgreSQL": "postgres",
+		"pg":         "postgres",
+		"mysql":      "mysql",
+		"sqlite3":    "sqlite",
+		"xxx":        "",
+	}
+	for in, want := range tests {
+		if got := normalizeJSONAuditDatabaseEngine(in); got != want {
+			t.Fatalf("engine %q => %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_PostgresURLWithoutEngine(t *testing.T) {
+	engine, dsn, err := resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{
+		DSN: "postgres://u:p@127.0.0.1:5432/audit?sslmode=disable",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if engine != "postgres" {
+		t.Fatalf("engine=%s", engine)
+	}
+	if dsn != "postgres://u:p@127.0.0.1:5432/audit?sslmode=disable" {
+		t.Fatalf("dsn=%s", dsn)
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_MySQLURLNormalize(t *testing.T) {
+	engine, dsn, err := resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{
+		DSN: "mysql://root:secret@127.0.0.1:3306/apigw?charset=utf8mb4",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if engine != "mysql" {
+		t.Fatalf("engine=%s", engine)
+	}
+	if dsn != "root:secret@tcp(127.0.0.1:3306)/apigw?charset=utf8mb4" {
+		t.Fatalf("dsn=%s", dsn)
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_SQLiteURLWithoutEngine(t *testing.T) {
+	engine, dsn, err := resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{
+		DSN: "sqlite:///var/lib/api-gateway/json-audit.sqlite",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if engine != "sqlite" {
+		t.Fatalf("engine=%s", engine)
+	}
+	if dsn != "/var/lib/api-gateway/json-audit.sqlite" {
+		t.Fatalf("dsn=%s", dsn)
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_KeepLegacyMySQLDSN(t *testing.T) {
+	engine, dsn, err := resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{
+		Engine: "mysql",
+		DSN:    "root:secret@tcp(127.0.0.1:3306)/apigw",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if engine != "mysql" || dsn != "root:secret@tcp(127.0.0.1:3306)/apigw" {
+		t.Fatalf("engine=%s dsn=%s", engine, dsn)
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_EngineMismatch(t *testing.T) {
+	_, _, err := resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{
+		Engine: "postgres",
+		DSN:    "mysql://root:secret@127.0.0.1:3306/apigw",
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match dsn scheme") {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_StructuredConfigPriorityHigherThanDSN(t *testing.T) {
+	engine, dsn, err := resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{
+		Engine:   "postgres",
+		Host:     "postgres",
+		Port:     5432,
+		Username: "postgres",
+		Password: "postgres",
+		DB:       "api-gateway",
+		DSN:      "mysql://root:secret@127.0.0.1:3306/ignored",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if engine != "postgres" {
+		t.Fatalf("engine=%s", engine)
+	}
+	if !strings.Contains(dsn, "host=postgres") || !strings.Contains(dsn, "dbname=api-gateway") {
+		t.Fatalf("dsn=%s", dsn)
+	}
+}
+
+func TestResolveJSONAuditDatabaseConfig_PanicWhenDatabaseConfigMissing(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic when output.database config is missing")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "requires dedicated output.database config") {
+			t.Fatalf("unexpected panic: %v", r)
+		}
+	}()
+	_, _, _ = resolveJSONAuditDatabaseConfig(route.JSONAuditOutputDatabase{})
+}
+
+func TestPrepare_JSONAuditOutputDatabaseMySQLAndPostgresValidationOnly(t *testing.T) {
+	cfg := &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable: true,
+			Output: route.JSONAuditOutput{
+				Provider: "database",
+				Database: route.JSONAuditOutputDatabase{
+					Engine: "mysql",
+					DSN:    "root:pass@tcp(localhost:3306)/db",
+				},
+			},
+		},
+	}
+	// We don't connect to real MySQL/Postgres in unit tests. This ensures engine normalization accepts both.
+	if got := normalizeJSONAuditDatabaseEngine(cfg.JSONAudit.Output.Database.Engine); got != "mysql" {
+		t.Fatalf("mysql normalize got %q", got)
+	}
+	cfg.JSONAudit.Output.Database.Engine = "postgresql"
+	if got := normalizeJSONAuditDatabaseEngine(cfg.JSONAudit.Output.Database.Engine); got != "postgres" {
+		t.Fatalf("postgres normalize got %q", got)
+	}
+}
+
+func TestEmitAuditLine_DatabaseFallbackIfNotInitialized(t *testing.T) {
+	j := New()
+	ctx := &zoox.Context{Logger: logger.New()}
+	j.emitAuditLine(ctx, &route.JSONAudit{
+		Enable: true,
+		Output: route.JSONAuditOutput{
+			Provider: "database",
+			Database: route.JSONAuditOutputDatabase{
+				Engine: "sqlite",
+				DSN:    "x.sqlite",
+			},
+		},
+	}, []byte(`{"ok":true}`))
+}
+
+func TestDatabaseSQLiteFileCreated(t *testing.T) {
+	dbPath := t.TempDir() + string(os.PathSeparator) + "audit-check.sqlite"
+	j := New()
+	err := j.Prepare(defaults.Default(), &config.Config{
+		JSONAudit: config.JSONAudit{
+			Enable: true,
+			Output: route.JSONAuditOutput{
+				Provider: "database",
+				Database: route.JSONAuditOutputDatabase{
+					Engine: "sqlite",
+					DSN:    dbPath,
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("sqlite db file not created: %v", err)
+	}
 }

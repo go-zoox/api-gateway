@@ -1,0 +1,35 @@
+# Example: IP policy only — CIDR allow/deny and optional trusted forwarders.
+version: v1
+port: 8080
+
+# When the direct peer (e.g. your load balancer) is in 10.0.0.0/8, trust X-Forwarded-For
+# to derive the client IP. If trusted_proxies is empty, only RemoteAddr is used.
+ip_policy:
+  enable: true
+  deny:
+    - 198.51.100.0/24
+  trusted_proxies:
+    - 10.0.0.0/8
+  message: "Forbidden"
+
+routes:
+  - name: public-api
+    path: /api
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443
+
+  - name: internal-only
+    path: /internal
+    ip_policy:
+      enable: true
+      # Client must be in this CIDR; route deny is merged with global deny.
+      allow:
+        - 10.0.0.0/8
+    backend:
+      service:
+        protocol: https
+        name: httpbin.org
+        port: 443
