@@ -23,12 +23,17 @@ type Config struct {
 	//
 	JSONAudit JSONAudit `config:"json_audit"`
 	//
+	HTTPCache HTTPCache `config:"http_cache"`
+	//
 	IPPolicy IPPolicy `config:"ip_policy"`
 	//
 	CORS CORS `config:"cors"`
 	//
 	// Match func(path string) (r *route.Route, err error)
 }
+
+// HTTPCache uses route.HTTPCache to avoid circular imports (same pattern as RateLimit).
+type HTTPCache = route.HTTPCache
 
 // JSONAudit uses route.JSONAudit to avoid circular imports (same pattern as RateLimit).
 type JSONAudit = route.JSONAudit

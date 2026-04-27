@@ -134,8 +134,8 @@ type CORS struct {
 	// AllowHeaders lists allowed request headers (Access-Control-Allow-Headers).
 	AllowHeaders []string `config:"allow_headers"`
 	// ExposeHeaders lists response headers the browser may read (Access-Control-Expose-Headers).
-	ExposeHeaders []string `config:"expose_headers"`
-	AllowCredentials bool `config:"allow_credentials"`
+	ExposeHeaders    []string `config:"expose_headers"`
+	AllowCredentials bool     `config:"allow_credentials"`
 	// MaxAge is the preflight cache duration in seconds (Access-Control-Max-Age).
 	MaxAge int64 `config:"max_age"`
 }
@@ -148,6 +148,7 @@ type Route struct {
 	PathType  string    `config:"path_type,default=prefix"`
 	RateLimit RateLimit `config:"rate_limit"`
 	JSONAudit JSONAudit `config:"json_audit"`
+	HTTPCache HTTPCache `config:"http_cache"`
 	IPPolicy  IPPolicy  `config:"ip_policy"`
 	CORS      CORS      `config:"cors"`
 }

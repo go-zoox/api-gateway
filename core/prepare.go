@@ -4,6 +4,7 @@ import (
 	"github.com/go-zoox/api-gateway/core/loadbalancer"
 	"github.com/go-zoox/api-gateway/plugin/baseuri"
 	"github.com/go-zoox/api-gateway/plugin/cors"
+	"github.com/go-zoox/api-gateway/plugin/httpcache"
 	"github.com/go-zoox/api-gateway/plugin/ippolicy"
 	"github.com/go-zoox/api-gateway/plugin/jsonaudit"
 	"github.com/go-zoox/api-gateway/plugin/ratelimit"
@@ -121,12 +122,30 @@ func (c *core) preparePluginsBuildin() error {
 		c.plugins = append(c.plugins, ratelimit.New())
 	}
 
+	// HTTP response cache (GET / configurable methods)
+	if c.shouldEnableHTTPCache() {
+		c.plugins = append(c.plugins, httpcache.New())
+	}
+
 	// JSON audit (response JSON-like → log request + response)
 	if c.shouldEnableJSONAudit() {
 		c.plugins = append(c.plugins, jsonaudit.New())
 	}
 
 	return nil
+}
+
+// shouldEnableHTTPCache is true when global http_cache is enabled or any route enables it.
+func (c *core) shouldEnableHTTPCache() bool {
+	if c.cfg.HTTPCache.Enable {
+		return true
+	}
+	for _, rt := range c.cfg.Routes {
+		if rt.HTTPCache.Enable {
+			return true
+		}
+	}
+	return false
 }
 
 // shouldEnableJSONAudit is true when global json_audit is enabled or any route enables json_audit.

@@ -18,7 +18,7 @@ type IPPolicy struct {
 	cfg *config.Config
 	// key: route name + \x00 + route path, only routes with ip_policy.enable
 	perRoute map[string]*compiled
-	global *compiled
+	global   *compiled
 }
 
 // New creates the IP policy plugin.
@@ -147,13 +147,13 @@ func (p *IPPolicy) handle(ctx *zoox.Context) {
 	direct, err := DirectPeerIP(ctx.Request)
 	if err != nil {
 		ctx.Logger.Warnf("[plugin:ippolicy] direct peer: %v", err)
-		ctx.String(http.StatusForbidden, "%s", pol.message)
+		ctx.String(http.StatusForbidden, pol.message)
 		return
 	}
 	client := ClientIP(ctx.Request, direct, pol.trusted)
 	if !pol.allows(client) {
 		ctx.Logger.Warnf("[plugin:ippolicy] blocked client %s (direct %s) path %s", client, direct, ctx.Path)
-		ctx.String(http.StatusForbidden, "%s", pol.message)
+		ctx.String(http.StatusForbidden, pol.message)
 		return
 	}
 	ctx.Next()
