@@ -95,6 +95,7 @@ type Route struct {
 	PathType   string    `config:"path_type,default=prefix"`
 	RateLimit  RateLimit `config:"rate_limit"`
 	JSONAudit  JSONAudit `config:"json_audit"`
+	HTTPCache  HTTPCache `config:"http_cache"`
 }
 
 // EffectiveJSONAuditProvider returns the normalized sink id: console, file, or http.

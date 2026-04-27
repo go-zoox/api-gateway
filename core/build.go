@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/go-zoox/api-gateway/plugin/httpcache"
 	"github.com/go-zoox/logger"
 	"github.com/go-zoox/proxy"
 	"github.com/go-zoox/zoox"
@@ -150,6 +151,8 @@ func (c *core) build() error {
 
 			return nil
 		}
+
+		httpcache.AttachTerminalAwareProxyOnError(cfg)
 
 		return
 	}))
