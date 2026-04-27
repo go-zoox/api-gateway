@@ -37,6 +37,36 @@ func TestBuildCacheKey_StablePerVary(t *testing.T) {
 	}
 }
 
+func TestBuildCacheKey_StableQueryOrder(t *testing.T) {
+	h := &HTTPCachePlugin{}
+	cfg := route.HTTPCache{}
+
+	eq := func(a, b string) {
+		t.Helper()
+		ra, err := http.NewRequest(http.MethodGet, a, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rb, err := http.NewRequest(http.MethodGet, b, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ka, err := h.buildCacheKey(&cfg, ra, "/api")
+		if err != nil {
+			t.Fatal(err)
+		}
+		kb, err := h.buildCacheKey(&cfg, rb, "/api")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ka != kb {
+			t.Fatalf("query order should not affect key: %q vs %q\n%q %q", ka, kb, a, b)
+		}
+	}
+	eq("http://example.test/r?b=2&a=1", "http://example.test/r?a=1&b=2")
+	eq("http://example.test/r?z=1&z=2&y=x", "http://example.test/r?y=x&z=2&z=1")
+}
+
 func TestGetConfigForPath_LongestPrefix(t *testing.T) {
 	h := &HTTPCachePlugin{
 		global: &route.HTTPCache{Enable: true, TTL: 30},
@@ -70,4 +100,32 @@ func mustReq(t *testing.T, method, rawURL, lang, ver string) *http.Request {
 		req.Header.Set("X-Api-Version", ver)
 	}
 	return req
+}
+
+func TestBuildCacheKey_StableVaryHeaderOrder(t *testing.T) {
+	h := &HTTPCachePlugin{}
+	cfg := route.HTTPCache{
+		VaryHeaders: []string{"Accept"},
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://example.test/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header["Accept"] = []string{"text/html", "application/json", "text/plain"}
+	k1, err := h.buildCacheKey(&cfg, req, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2, err := http.NewRequest(http.MethodGet, "http://example.test/x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.Header["Accept"] = []string{"application/json", "text/html", "text/plain"}
+	k2, err := h.buildCacheKey(&cfg, req2, "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k1 != k2 {
+		t.Fatalf("permutation of header values should not affect key: %q %q", k1, k2)
+	}
 }

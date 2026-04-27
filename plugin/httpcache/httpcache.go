@@ -196,11 +196,11 @@ func (h *HTTPCachePlugin) buildCacheKey(cfg *route.HTTPCache, req *http.Request,
 	_, _ = hh.Write([]byte(req.URL.Path))
 	_, _ = hh.Write([]byte{0})
 	if cfg.IncludeQueryInKey() {
-		_, _ = hh.Write([]byte(req.URL.RawQuery))
+		_, _ = hh.Write([]byte(normalizedQueryString(req.URL.RawQuery)))
 	}
 	_, _ = hh.Write([]byte{0})
 	for _, name := range cfg.NormalizedVaryHeaders() {
-		v := strings.TrimSpace(req.Header.Get(name))
+		v := strings.TrimSpace(sortedHeaderField(req.Header, name))
 		_, _ = hh.Write([]byte(strings.ToLower(name)))
 		_, _ = hh.Write([]byte{0})
 		_, _ = hh.Write([]byte(v))
